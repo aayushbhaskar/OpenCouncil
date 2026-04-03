@@ -14,7 +14,10 @@ Open Council operates through specialized agentic graphs, invoked via the CLI:
 
 ## 🚀 Quick Start
 
-First Build Releasing Soon. Stay Tuned!
+Phase 1 is now scaffolded with:
+- Python package layout under `src/open_council/`
+- Core dependency setup in `pyproject.toml`
+- Async LiteLLM wrapper with Groq -> Gemini -> Ollama fallback (`open_council.core.llm`)
 
 ⚡ Optional Power-Up: The Local Fallback Engine
 For the ultimate privacy and resilience experience, we highly recommend installing Ollama before your first run. If Open Council detects Ollama running on localhost, it will automatically use it as a zero-cost safety net if your cloud APIs hit rate limits. Once Ollama is installed, just run ollama pull llama3 in your terminal.
@@ -26,17 +29,24 @@ Open Council requires **Python 3.11+**.
 git clone https://github.com/aayushbhaskar/open-council.git
 cd open-council
 
-# 2. Install dependencies
-pip install -e .
+# 2. Create a virtual environment
+python3 -m venv .venv
+source .venv/bin/activate
 
-# 3. Setup your environment variables
+# 3. Install dependencies
+pip install -e ".[dev]"
+
+# 4. Setup your environment variables
 cp .env.example .env
-# Open .env in your editor and add your free API keys
+# Open .env and set at least GROQ_API_KEY and GEMINI_API_KEY.
+# Optional model overrides: GROQ_MODEL, GEMINI_MODEL, OLLAMA_MODEL.
+# OLLAMA_BASE_URL defaults to http://localhost:11434.
 
-# 4. Invoke the Council
-council run "Design a distributed caching architecture for a high-traffic e-commerce site" --mode leviathan
+# 5. Run tests for fallback behavior
+pytest -q tests/test_llm_client.py
 
-Note: On your first run, Open Council will launch an interactive terminal wizard to set up your .env API keys and auto-detect your local Ollama installation.
+# 6. Invoke the current CLI scaffold
+council
 ```
 
 ## 🏗️ Architecture & Resilience
