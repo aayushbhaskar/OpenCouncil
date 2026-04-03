@@ -1,4 +1,4 @@
-"""Typed state schema for Executive Mode DAG."""
+"""Typed state schema for Odin (Executive) mode DAG."""
 
 from __future__ import annotations
 
@@ -14,9 +14,9 @@ class WorkerDraft(TypedDict):
     draft: str
 
 
-class ExecutiveState(TypedDict):
+class OdinState(TypedDict):
     """
-    Shared LangGraph state for the Executive mode.
+    Shared LangGraph state for Odin mode.
 
     - `query`: original user prompt
     - `parallel_drafts`: worker responses gathered in parallel
@@ -28,8 +28,8 @@ class ExecutiveState(TypedDict):
     final_synthesis: NotRequired[str]
 
 
-def initialize_executive_state(query: str) -> ExecutiveState:
-    """Create a valid initial Executive state payload."""
+def initialize_odin_state(query: str) -> OdinState:
+    """Create a valid initial Odin state payload."""
     cleaned_query = query.strip()
     if not cleaned_query:
         raise ValueError("Query cannot be empty.")

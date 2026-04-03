@@ -7,3 +7,4 @@ def app() -> None:
     """Temporary CLI entrypoint for Phase 1."""
     console = Console()
     console.print("Open Council Phase 1 scaffold ready.")
+    console.print("Modes: Odin (Executive), Artemis (Academic), Leviathan (Devil's Advocate)")
