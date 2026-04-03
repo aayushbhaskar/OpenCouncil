@@ -8,6 +8,8 @@ from typing import Any
 
 from litellm import acompletion
 
+from open_council.core.throttle import network_throttle
+
 
 @dataclass(slots=True)
 class LLMAttempt:
@@ -54,13 +56,15 @@ class LiteLLMClient:
 
         for provider, model in self.provider_models:
             try:
-                response = await acompletion(
-                    model=model,
-                    messages=messages,
-                    temperature=temperature,
-                    max_tokens=max_tokens,
-                    timeout=self.timeout_seconds,
-                    **self._provider_kwargs(provider),
+                response = await network_throttle.run(
+                    lambda: acompletion(
+                        model=model,
+                        messages=messages,
+                        temperature=temperature,
+                        max_tokens=max_tokens,
+                        timeout=self.timeout_seconds,
+                        **self._provider_kwargs(provider),
+                    )
                 )
                 content = self._extract_content(response)
                 attempts.append(LLMAttempt(provider=provider, model=model))
