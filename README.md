@@ -8,7 +8,7 @@ Open Council is a CLI-first, open-source AI orchestrator. It replicates enterpri
 
 Open Council operates through specialized agentic graphs, invoked via the CLI:
 
-* **Odin (Executive Mode):** *[Coming Soon]* Fast, overarching synthesis. Parallel worker models gather data, and a heavy-weight judge delivers the final truth.
+* **Odin (Executive Mode):** *[MVP In Progress]* Fast, overarching synthesis. Parallel worker models gather data, and a heavy-weight judge delivers the final truth.
 * **Artemis (Academic Mode):** *[Coming Soon]* Deep, cyclic research. An agent that scours the web, loops through citations, and rigorously peer-reviews its own findings before outputting a thesis.
 * **Leviathan (Devil's Advocate):** *[Coming Soon]* System architecture stress-testing. Feed it a design proposal, and aggressive Red Team agents will hunt for bottlenecks and security flaws.
 
@@ -20,7 +20,7 @@ Phase 1 is now scaffolded with:
 - Async LiteLLM wrapper with Groq -> Gemini -> Ollama fallback (`open_council.core.llm`)
 
 ⚡ Optional Power-Up: The Local Fallback Engine
-For the ultimate privacy and resilience experience, we highly recommend installing Ollama before your first run. If Open Council detects Ollama running on localhost, it will automatically use it as a zero-cost safety net if your cloud APIs hit rate limits. Once Ollama is installed, just run ollama pull llama3 in your terminal.
+For the ultimate privacy and resilience experience, we highly recommend installing Ollama before your first run. Install from [Ollama Downloads](https://ollama.com/download). If Open Council detects Ollama running on localhost, it will automatically use it as a zero-cost safety net if your cloud APIs hit rate limits. Once Ollama is installed, just run `ollama pull llama3` in your terminal.
 
 Open Council requires **Python 3.11+**. 
 
@@ -64,7 +64,7 @@ Network Throttling: Strict asyncio.Semaphore implementation prevents 429 Rate Li
 
 Tiered Fallback Cascade: Uses LiteLLM to automatically route failed queries: Groq -> Gemini -> Local Ollama. If the cloud goes down, your local machine takes over without crashing the graph.
 
-Local Checkpointing: LangGraph thread states are written to local SQLite, allowing you to pause a debate and resume it days later.
+Local Checkpointing: Planned for the next phase via SQLite-backed checkpoints (not yet wired in this MVP iteration).
 
 ## 🗺️ Roadmap
 [ ] Phase 1: The Resilient MVP (Odin Mode, LiteLLM Routing, Rich CLI)
