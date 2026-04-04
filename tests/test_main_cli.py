@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
+from unittest.mock import patch
 
 from open_council.main import app, parse_cli_args
 
@@ -16,6 +18,21 @@ class _DummyGraph:
             "parallel_drafts": [{"worker_id": "muninn", "model": "m", "draft": "d"}],
             "final_synthesis": f"verdict for: {state['query']}",
         }
+
+    async def astream(self, state: dict[str, Any], stream_mode: str = "updates"):
+        _ = stream_mode
+        self.received_states.append(dict(state))
+        yield {
+            "muninn_worker": {
+                "parallel_drafts": [{"worker_id": "muninn", "model": "m", "draft": "d"}]
+            }
+        }
+        yield {
+            "huginn_worker": {
+                "parallel_drafts": [{"worker_id": "huginn", "model": "m", "draft": "d"}]
+            }
+        }
+        yield {"odin_judge": {"final_synthesis": f"verdict for: {state['query']}"}}
 
 
 def test_parse_cli_args_defaults() -> None:
@@ -34,13 +51,15 @@ def test_app_prints_mode_and_debug(capsys, monkeypatch) -> None:
     dummy_graph = _DummyGraph()
     prompt_values = iter(["/quit"])
 
-    def _stub_prompt(_: str) -> str:
+    def _stub_prompt(_: str, default: str | None = None) -> str:
+        _ = default
         return next(prompt_values)
 
     from open_council import main
 
     monkeypatch.setattr(main.Prompt, "ask", _stub_prompt)
     monkeypatch.setattr(main, "build_odin_graph", lambda: dummy_graph)
+    monkeypatch.setattr(main, "ensure_env_file_with_wizard", lambda console: True)
 
     app(["--mode", "odin", "--debug"])
     output = capsys.readouterr().out
@@ -64,13 +83,15 @@ def test_app_persists_state_across_turns(capsys, monkeypatch) -> None:
     dummy_graph = _DummyGraph()
     prompt_values = iter(["first question", "second question", "/exit"])
 
-    def _stub_prompt(_: str) -> str:
+    def _stub_prompt(_: str, default: str | None = None) -> str:
+        _ = default
         return next(prompt_values)
 
     from open_council import main
 
     monkeypatch.setattr(main.Prompt, "ask", _stub_prompt)
     monkeypatch.setattr(main, "build_odin_graph", lambda: dummy_graph)
+    monkeypatch.setattr(main, "ensure_env_file_with_wizard", lambda console: True)
 
     app(["--mode", "odin"])
     output = capsys.readouterr().out
@@ -94,13 +115,15 @@ def test_app_requires_slash_exit_commands(capsys, monkeypatch) -> None:
     dummy_graph = _DummyGraph()
     prompt_values = iter(["exit", "quit", "/exit"])
 
-    def _stub_prompt(_: str) -> str:
+    def _stub_prompt(_: str, default: str | None = None) -> str:
+        _ = default
         return next(prompt_values)
 
     from open_council import main
 
     monkeypatch.setattr(main.Prompt, "ask", _stub_prompt)
     monkeypatch.setattr(main, "build_odin_graph", lambda: dummy_graph)
+    monkeypatch.setattr(main, "ensure_env_file_with_wizard", lambda console: True)
 
     app(["--mode", "odin"])
     output = capsys.readouterr().out
@@ -109,3 +132,107 @@ def test_app_requires_slash_exit_commands(capsys, monkeypatch) -> None:
     assert "To quit, use /quit." in output
     assert "Exiting Open Council." in output
     assert len(dummy_graph.received_states) == 0
+
+
+def test_first_run_wizard_creates_env_file(tmp_path, monkeypatch, capsys) -> None:
+    from open_council import main
+    from rich.console import Console
+
+    template_path = tmp_path / ".env.example"
+    env_path = tmp_path / ".env"
+    template_path.write_text(
+        'GROQ_API_KEY="your_groq_api_key_here"\nGEMINI_API_KEY="your_gemini_api_key_here"\n',
+        encoding="utf-8",
+    )
+
+    prompt_values = iter(["groq-key-123", "gem-key-456"])
+
+    def _stub_prompt(_: str, default: str = "") -> str:
+        _ = default
+        return next(prompt_values)
+
+    monkeypatch.setattr(main.Prompt, "ask", _stub_prompt)
+    monkeypatch.setattr(main.shutil, "which", lambda _: "/usr/local/bin/ollama")
+
+    main.ensure_env_file_with_wizard(
+        console=Console(),
+        env_path=env_path,
+        template_path=template_path,
+    )
+
+    output = capsys.readouterr().out
+    content = env_path.read_text(encoding="utf-8")
+    assert "Detected Ollama" in output
+    assert 'GROQ_API_KEY="groq-key-123"' in content
+    assert 'GEMINI_API_KEY="gem-key-456"' in content
+
+
+def test_first_run_wizard_skips_when_env_exists(tmp_path, monkeypatch) -> None:
+    from open_council import main
+    from rich.console import Console
+
+    env_path = tmp_path / ".env"
+    template_path = tmp_path / ".env.example"
+    env_path.write_text("EXISTING=1\n", encoding="utf-8")
+    template_path.write_text('GROQ_API_KEY="x"\n', encoding="utf-8")
+
+    with patch.object(main.Prompt, "ask", side_effect=AssertionError("Should not prompt")):
+        result = main.ensure_env_file_with_wizard(
+            console=Console(),
+            env_path=env_path,
+            template_path=template_path,
+        )
+
+    assert result is True
+    assert env_path.read_text(encoding="utf-8") == "EXISTING=1\n"
+
+
+def test_first_run_wizard_allows_exit_command(tmp_path, monkeypatch, capsys) -> None:
+    from open_council import main
+    from rich.console import Console
+
+    env_path = tmp_path / ".env"
+    template_path = tmp_path / ".env.example"
+    template_path.write_text('GROQ_API_KEY="x"\nGEMINI_API_KEY="y"\n', encoding="utf-8")
+
+    monkeypatch.setattr(main.Prompt, "ask", lambda prompt, default="": "/exit")
+
+    result = main.ensure_env_file_with_wizard(
+        console=Console(),
+        env_path=env_path,
+        template_path=template_path,
+    )
+
+    output = capsys.readouterr().out
+    assert result is False
+    assert "Exiting Open Council." in output
+    assert env_path.exists() is False
+
+
+def test_first_run_wizard_keyboard_interrupt_twice_exits(tmp_path, monkeypatch, capsys) -> None:
+    from open_council import main
+    from rich.console import Console
+
+    env_path = tmp_path / ".env"
+    template_path = tmp_path / ".env.example"
+    template_path.write_text('GROQ_API_KEY="x"\nGEMINI_API_KEY="y"\n', encoding="utf-8")
+
+    calls = {"count": 0}
+
+    def _interrupting_prompt(prompt: str, default: str = "") -> str:
+        _ = prompt, default
+        calls["count"] += 1
+        raise KeyboardInterrupt()
+
+    monkeypatch.setattr(main.Prompt, "ask", _interrupting_prompt)
+
+    result = main.ensure_env_file_with_wizard(
+        console=Console(),
+        env_path=env_path,
+        template_path=template_path,
+    )
+    output = capsys.readouterr().out
+
+    assert result is False
+    assert "Press Ctrl+C again to exit, or type /exit." in output
+    assert "Exiting Open Council." in output
