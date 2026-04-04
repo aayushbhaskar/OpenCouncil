@@ -13,7 +13,15 @@ from open_council.state.executive import OdinState
 
 
 def build_odin_graph():
-    """Build and compile Odin DAG: START -> workers -> judge -> END."""
+    """
+    Build and compile the Odin DAG topology.
+
+    Graph:
+        START -> (muninn_worker + huginn_worker in parallel) -> odin_judge -> END
+
+    Returns:
+        A compiled LangGraph runnable supporting `ainvoke` and `astream`.
+    """
     graph = StateGraph(OdinState)
     graph.add_node("muninn_worker", pragmatic_worker_node)
     graph.add_node("huginn_worker", skeptical_worker_node)
@@ -29,5 +37,10 @@ def build_odin_graph():
 
 
 def compile_executive_graph():
-    """Compatibility name for PRD task references."""
+    """
+    Compatibility wrapper for legacy/PRD naming.
+
+    Returns:
+        The same compiled graph returned by `build_odin_graph()`.
+    """
     return build_odin_graph()

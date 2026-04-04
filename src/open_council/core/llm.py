@@ -13,7 +13,14 @@ from open_council.core.throttle import network_throttle
 
 @dataclass(slots=True)
 class LLMAttempt:
-    """One provider attempt record for observability/debugging."""
+    """
+    Metadata for one provider attempt in a fallback sequence.
+
+    Attributes:
+        provider: Logical provider name (e.g., groq, gemini, ollama).
+        model: Model identifier used for this attempt.
+        error: Optional error message when the attempt failed.
+    """
 
     provider: str
     model: str
@@ -22,7 +29,18 @@ class LLMAttempt:
 
 @dataclass(slots=True)
 class LLMResult:
-    """Normalized response consumed by graph nodes."""
+    """
+    Normalized LLM response object consumed by graph nodes.
+
+    Attributes:
+        ok: Whether at least one provider call succeeded.
+        content: Extracted assistant text content (empty on failure).
+        provider: Provider that produced the successful answer.
+        model: Model that produced the successful answer.
+        attempts: Ordered provider-attempt records for observability.
+        error: Aggregate failure reason when all providers fail.
+        raw_response: Raw LiteLLM payload for optional advanced inspection.
+    """
 
     ok: bool
     content: str
@@ -34,9 +52,26 @@ class LLMResult:
 
 
 class LiteLLMClient:
-    """Defensive async wrapper around `litellm.acompletion`."""
+    """
+    Defensive async wrapper around `litellm.acompletion`.
+
+    This client applies:
+    - strict provider fallback ordering
+    - shared semaphore throttling
+    - normalized response shape
+    - graceful non-raising failure semantics
+    """
 
     def __init__(self) -> None:
+        """
+        Initialize timeout and provider model routing defaults from env vars.
+
+        Environment:
+            LITELLM_TIMEOUT_SECONDS
+            GROQ_MODEL
+            GEMINI_MODEL
+            OLLAMA_MODEL
+        """
         self.timeout_seconds = float(os.getenv("LITELLM_TIMEOUT_SECONDS", "30"))
         self.provider_models = [
             ("groq", os.getenv("GROQ_MODEL", "groq/llama-3.1-70b-versatile")),
@@ -51,7 +86,18 @@ class LiteLLMClient:
         temperature: float = 0.2,
         max_tokens: int | None = None,
     ) -> LLMResult:
-        """Call model completion with strict Groq -> Gemini -> Ollama fallback."""
+        """
+        Execute chat completion with Groq -> Gemini -> Ollama fallback.
+
+        Args:
+            messages: OpenAI-style message array for LiteLLM completion.
+            temperature: Sampling temperature sent to provider.
+            max_tokens: Optional max output token cap.
+
+        Returns:
+            `LLMResult` containing content on success, or a safe failure object
+            when all fallback providers fail.
+        """
         attempts: list[LLMAttempt] = []
 
         for provider, model in self.provider_models:
@@ -89,6 +135,15 @@ class LiteLLMClient:
         )
 
     def _provider_kwargs(self, provider: str) -> dict[str, Any]:
+        """
+        Build provider-specific LiteLLM kwargs from environment config.
+
+        Args:
+            provider: Logical provider key for the active attempt.
+
+        Returns:
+            Keyword arguments passed into `litellm.acompletion`.
+        """
         if provider == "groq":
             api_key = os.getenv("GROQ_API_KEY", "").strip()
             return {"api_key": api_key} if api_key else {}
@@ -102,6 +157,15 @@ class LiteLLMClient:
 
     @staticmethod
     def _extract_content(response: Any) -> str:
+        """
+        Extract assistant text content from a LiteLLM response payload.
+
+        Args:
+            response: Raw response object returned by LiteLLM.
+
+        Returns:
+            Extracted content string, or empty string when extraction fails.
+        """
         try:
             return response.choices[0].message.content or ""
         except Exception:  # noqa: BLE001

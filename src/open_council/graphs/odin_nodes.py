@@ -49,7 +49,15 @@ Tone: Authoritative, objective, and decisively brief. Do not use concluding fill
 
 
 async def pragmatic_worker_node(state: OdinState) -> dict[str, list[WorkerDraft]]:
-    """Generate the pragmatic draft and return only state updates."""
+    """
+    Generate Muninn (pragmatist) worker draft.
+
+    Args:
+        state: Current Odin graph state.
+
+    Returns:
+        State delta containing a single appended `parallel_drafts` item.
+    """
     return await _run_worker_node(
         state=state,
         worker_id="muninn",
@@ -58,7 +66,15 @@ async def pragmatic_worker_node(state: OdinState) -> dict[str, list[WorkerDraft]
 
 
 async def skeptical_worker_node(state: OdinState) -> dict[str, list[WorkerDraft]]:
-    """Generate the skeptical draft and return only state updates."""
+    """
+    Generate Huginn (skeptic) worker draft.
+
+    Args:
+        state: Current Odin graph state.
+
+    Returns:
+        State delta containing a single appended `parallel_drafts` item.
+    """
     return await _run_worker_node(
         state=state,
         worker_id="huginn",
@@ -67,7 +83,16 @@ async def skeptical_worker_node(state: OdinState) -> dict[str, list[WorkerDraft]
 
 
 async def judge_node(state: OdinState) -> dict[str, str]:
-    """Synthesize worker drafts into a final Odin answer."""
+    """
+    Synthesize worker drafts into the final Odin verdict.
+
+    Args:
+        state: Current Odin graph state, including worker drafts.
+
+    Returns:
+        State delta with `final_synthesis`. On failures, returns a safe
+        explanatory message instead of raising.
+    """
     client = LiteLLMClient()
     messages = _build_judge_messages(state)
     try:
@@ -96,6 +121,18 @@ async def _run_worker_node(
     worker_id: str,
     system_prompt: str,
 ) -> dict[str, list[WorkerDraft]]:
+    """
+    Shared worker-node execution logic for Muninn and Huginn.
+
+    Args:
+        state: Current Odin state.
+        worker_id: Stable worker identity (`muninn` or `huginn`).
+        system_prompt: Worker persona/system prompt.
+
+    Returns:
+        State delta with one worker draft entry. Returns fallback draft content
+        when model calls fail or raise.
+    """
     client = LiteLLMClient()
     messages = _build_worker_messages(state=state, system_prompt=system_prompt)
     try:
@@ -131,6 +168,16 @@ async def _run_worker_node(
 
 
 def _build_worker_messages(*, state: OdinState, system_prompt: str) -> list[dict[str, str]]:
+    """
+    Build worker input messages using history and current query.
+
+    Args:
+        state: Current Odin state.
+        system_prompt: Persona/system prompt for the worker.
+
+    Returns:
+        OpenAI-style message list for LiteLLM completion.
+    """
     history_block = _format_chat_history(state.get("chat_history", []))
     user_content = (
         f"Conversation history:\n{history_block}\n\n"
@@ -143,6 +190,15 @@ def _build_worker_messages(*, state: OdinState, system_prompt: str) -> list[dict
 
 
 def _build_judge_messages(state: OdinState) -> list[dict[str, str]]:
+    """
+    Build judge input message set from history plus worker drafts.
+
+    Args:
+        state: Current Odin state.
+
+    Returns:
+        OpenAI-style message list with synthesis instructions and context.
+    """
     history_block = _format_chat_history(state.get("chat_history", []))
     drafts = state.get("parallel_drafts", [])
     formatted_drafts = "\n\n".join(_format_draft_for_judge(draft) for draft in drafts)
@@ -165,6 +221,15 @@ def _build_judge_messages(state: OdinState) -> list[dict[str, str]]:
 
 
 def _format_draft_for_judge(draft: dict[str, Any]) -> str:
+    """
+    Format one worker draft for judge prompt ingestion.
+
+    Args:
+        draft: Worker draft payload.
+
+    Returns:
+        Readable line describing worker, model, and draft text.
+    """
     worker_id = str(draft.get("worker_id", "unknown"))
     model = str(draft.get("model", "unknown"))
     content = str(draft.get("draft", "")).strip()
@@ -172,6 +237,15 @@ def _format_draft_for_judge(draft: dict[str, Any]) -> str:
 
 
 def _format_chat_history(history: list[ChatMessage]) -> str:
+    """
+    Render recent conversation turns into compact prompt text.
+
+    Args:
+        history: Persisted chat messages from Odin state.
+
+    Returns:
+        Multi-line role-prefixed history string limited to recent entries.
+    """
     if not history:
         return "No prior conversation."
     formatted = []
