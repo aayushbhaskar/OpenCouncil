@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import re
 import shutil
+import sys
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
+import termios
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.progress import Progress, SpinnerColumn, TextColumn
@@ -20,7 +23,12 @@ from open_council.state.executive import ChatMessage, OdinState, initialize_odin
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """Build the Phase 1 CLI parser."""
+    """
+    Build the top-level Open Council CLI parser.
+
+    Returns:
+        Configured `argparse.ArgumentParser` with mode/debug options.
+    """
     parser = argparse.ArgumentParser(prog="council", description="Open Council CLI")
     parser.add_argument(
         "--mode",
@@ -37,12 +45,30 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def parse_cli_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
-    """Parse command line arguments for council entry."""
+    """
+    Parse command-line arguments for `council`.
+
+    Args:
+        argv: Optional explicit argument list for tests or embedding.
+
+    Returns:
+        Parsed argparse namespace.
+    """
     return build_parser().parse_args(argv)
 
 
 def app(argv: Sequence[str] | None = None) -> None:
-    """Phase 1 CLI entrypoint with mode/debug argument support."""
+    """
+    Program entrypoint for Open Council CLI.
+
+    Args:
+        argv: Optional argument sequence; defaults to `sys.argv` behavior.
+
+    Behavior:
+        - Parses mode/debug flags.
+        - Runs first-run wizard when `.env` is missing.
+        - Launches Odin REPL for supported mode.
+    """
     args = parse_cli_args(argv)
     console = Console()
     console.print("Open Council starting...")
@@ -58,7 +84,19 @@ def app(argv: Sequence[str] | None = None) -> None:
 
 
 def run_odin_repl(console: Console, *, debug: bool = False) -> None:
-    """Interactive Odin REPL with persistent state across turns."""
+    """
+    Run the interactive Odin chat REPL loop.
+
+    Args:
+        console: Rich console used for all terminal output.
+        debug: If True, re-raise graph execution exceptions after printing.
+
+    Behavior:
+        - Reads user turns via Rich prompt.
+        - Enforces slash-based exit commands.
+        - Executes one graph turn per user query.
+        - Persists and reuses state across turns.
+    """
     graph = build_odin_graph()
     state: OdinState | None = None
     interrupt_state = {"armed": False}
@@ -104,6 +142,17 @@ def run_odin_repl(console: Console, *, debug: bool = False) -> None:
 
 
 def _prepare_state_for_turn(*, previous_state: OdinState | None, user_input: str) -> OdinState:
+    """
+    Build the input state for the next Odin turn.
+
+    Args:
+        previous_state: State from prior turn, if any.
+        user_input: Current user message text.
+
+    Returns:
+        Updated state carrying prior context, resetting per-turn draft buffer,
+        and appending the new user message to `chat_history`.
+    """
     if previous_state is None:
         state = initialize_odin_state(user_input)
     else:
@@ -116,10 +165,31 @@ def _prepare_state_for_turn(*, previous_state: OdinState | None, user_input: str
 
 
 def _append_assistant_turn(*, state: OdinState, final_synthesis: str) -> OdinState:
+    """
+    Append final assistant synthesis into persisted chat history.
+
+    Args:
+        state: Current Odin state after graph execution.
+        final_synthesis: Final judge output text.
+
+    Returns:
+        New state object with appended assistant message.
+    """
     return _append_chat_message(state=state, role="assistant", content=final_synthesis)
 
 
 def _append_chat_message(*, state: OdinState, role: str, content: str) -> OdinState:
+    """
+    Append one chat message to state history immutably.
+
+    Args:
+        state: Base state.
+        role: Message role label (e.g., user, assistant).
+        content: Message content.
+
+    Returns:
+        New state with extended `chat_history`.
+    """
     history = list(state.get("chat_history", []))
     history.append(ChatMessage(role=role, content=content))
     return {
@@ -129,7 +199,17 @@ def _append_chat_message(*, state: OdinState, role: str, content: str) -> OdinSt
 
 
 async def _invoke_odin_graph_with_ui(*, graph: Any, state: OdinState, console: Console) -> OdinState:
-    """Run one Odin turn while rendering transient node spinners."""
+    """
+    Execute one Odin graph turn while rendering transient Rich spinners.
+
+    Args:
+        graph: Compiled graph runnable exposing `astream`/`ainvoke`.
+        state: Input graph state for this turn.
+        console: Rich console for transient progress rendering.
+
+    Returns:
+        Merged resulting state after processing streamed node updates.
+    """
     if not hasattr(graph, "astream"):
         return await graph.ainvoke(state)
 
@@ -173,12 +253,31 @@ async def _invoke_odin_graph_with_ui(*, graph: Any, state: OdinState, console: C
 
 
 def _extract_node_name(chunk: Any) -> str | None:
+    """
+    Extract node name from one streamed update chunk.
+
+    Args:
+        chunk: Streamed graph update payload.
+
+    Returns:
+        Node key when available, otherwise `None`.
+    """
     if isinstance(chunk, dict) and chunk:
         return next(iter(chunk))
     return None
 
 
 def _extract_node_update(chunk: Any, node_name: str | None) -> dict[str, Any]:
+    """
+    Extract node-specific state update payload from stream chunk.
+
+    Args:
+        chunk: Streamed update payload.
+        node_name: Node key previously extracted from the chunk.
+
+    Returns:
+        Node update dictionary, or empty dict when unavailable.
+    """
     if node_name is None:
         return {}
     node_payload = chunk.get(node_name)
@@ -188,6 +287,17 @@ def _extract_node_update(chunk: Any, node_name: str | None) -> dict[str, Any]:
 
 
 def _merge_state_update(state: OdinState, update: dict[str, Any]) -> OdinState:
+    """
+    Merge streamed state delta into the current state snapshot.
+
+    Args:
+        state: Current merged state.
+        update: State delta emitted by one graph node.
+
+    Returns:
+        Updated merged state honoring list-append semantics for
+        `parallel_drafts`.
+    """
     merged: OdinState = dict(state)
     for key, value in update.items():
         if key == "parallel_drafts" and isinstance(value, list):
@@ -205,7 +315,18 @@ def ensure_env_file_with_wizard(
     env_path: Path = Path(".env"),
     template_path: Path = Path(".env.example"),
 ) -> bool:
-    """Create `.env` via first-run wizard when missing."""
+    """
+    Ensure `.env` exists, guiding first-run setup when missing.
+
+    Args:
+        console: Rich console for wizard output.
+        env_path: Destination `.env` file path.
+        template_path: `.env.example` template path.
+
+    Returns:
+        `True` when setup completes or file already exists.
+        `False` when the user exits during the wizard.
+    """
     if env_path.exists():
         return True
 
@@ -251,12 +372,32 @@ def ensure_env_file_with_wizard(
 
 
 def _read_env_template(template_path: Path) -> str:
+    """
+    Read `.env.example` contents or fallback template defaults.
+
+    Args:
+        template_path: Template file path.
+
+    Returns:
+        Template text used to generate `.env`.
+    """
     if template_path.exists():
         return template_path.read_text(encoding="utf-8")
     return 'GROQ_API_KEY=""\nGEMINI_API_KEY=""\nOLLAMA_BASE_URL="http://localhost:11434"\n'
 
 
 def _set_env_value(template: str, key: str, value: str) -> str:
+    """
+    Upsert one key-value assignment in env-file text.
+
+    Args:
+        template: Existing env-file text.
+        key: Environment variable name.
+        value: Variable value to write.
+
+    Returns:
+        Updated env-file text with the target key replaced or appended.
+    """
     pattern = rf"(?m)^{re.escape(key)}=.*$"
     replacement = f'{key}="{value}"'
     if re.search(pattern, template):
@@ -272,9 +413,22 @@ def _prompt_with_exit_controls(
     interrupt_state: dict[str, bool],
     default: str | None,
 ) -> str | None:
+    """
+    Prompt user input with graceful exit and interrupt semantics.
+
+    Args:
+        prompt: Prompt label shown to user.
+        console: Rich console for guidance output.
+        interrupt_state: Mutable two-step Ctrl+C state flag.
+        default: Optional default value for prompt input.
+
+    Returns:
+        Trimmed user input, or `None` when caller should exit application.
+    """
     while True:
         try:
-            user_input = Prompt.ask(prompt, default=default).strip()
+            with _without_echoctl():
+                user_input = Prompt.ask(prompt, default=default).strip()
         except KeyboardInterrupt:
             if interrupt_state.get("armed"):
                 console.print("\nExiting Open Council.")
@@ -291,3 +445,26 @@ def _prompt_with_exit_controls(
             console.print("\nExiting Open Council.")
             return None
         return user_input
+
+
+@contextlib.contextmanager
+def _without_echoctl():
+    """
+    Temporarily disable terminal control-character echo (e.g., `^C`).
+
+    This keeps interrupt keystrokes from being rendered in the prompt UI while
+    still allowing `KeyboardInterrupt` semantics to work as expected.
+    """
+    if not sys.stdin.isatty():
+        yield
+        return
+
+    fd = sys.stdin.fileno()
+    attrs = termios.tcgetattr(fd)
+    updated = attrs[:]
+    updated[3] = updated[3] & ~termios.ECHOCTL
+    try:
+        termios.tcsetattr(fd, termios.TCSANOW, updated)
+        yield
+    finally:
+        termios.tcsetattr(fd, termios.TCSANOW, attrs)

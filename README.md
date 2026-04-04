@@ -45,9 +45,17 @@ cp .env.example .env
 # 5. Run tests for fallback behavior
 pytest -q tests/test_llm_client.py
 
-# 6. Invoke the current CLI scaffold
-council
+# 6. Run Odin mode
+council --mode odin
+
+# In chat:
+# - Exit commands: /exit or /quit
+# - If you press Ctrl+C once, Open Council shows guidance.
+# - Press Ctrl+C again to exit immediately.
 ```
+
+If `.env` is missing, Open Council starts a first-run wizard to collect keys and
+auto-detect Ollama before entering chat.
 
 ## 🏗️ Architecture & Resilience
 Open Council is designed for "Graceful Degradation." It expects APIs to fail and handles them silently:
