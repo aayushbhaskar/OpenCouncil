@@ -67,13 +67,13 @@ def run_odin_repl(console: Console, *, debug: bool = False) -> None:
             continue
         lowered = user_input.lower()
         if lowered in {"/exit", "/quit"}:
-            console.print("Exiting Open Council.")
+            console.print("\nExiting Open Council.")
             return
         if lowered == "exit":
-            console.print("To exit, use /exit.")
+            console.print("\nTo exit, use /exit.")
             continue
         if lowered == "quit":
-            console.print("To quit, use /quit.")
+            console.print("\nTo quit, use /quit.")
             continue
 
         state = _prepare_state_for_turn(previous_state=state, user_input=user_input)
