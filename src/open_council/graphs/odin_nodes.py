@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from open_council.core.llm import LiteLLMClient
-from open_council.state.executive import OdinState, WorkerDraft
+from open_council.state.executive import ChatMessage, OdinState, WorkerDraft
 
 _MUNINN_PROMPT = """You are The Pragmatist, an expert consultant focused on execution, utility, and actionable solutions.
 
@@ -131,19 +131,26 @@ async def _run_worker_node(
 
 
 def _build_worker_messages(*, state: OdinState, system_prompt: str) -> list[dict[str, str]]:
+    history_block = _format_chat_history(state.get("chat_history", []))
+    user_content = (
+        f"Conversation history:\n{history_block}\n\n"
+        f"Current user query:\n{state['query']}"
+    )
     return [
         {"role": "system", "content": system_prompt},
-        {"role": "user", "content": state["query"]},
+        {"role": "user", "content": user_content},
     ]
 
 
 def _build_judge_messages(state: OdinState) -> list[dict[str, str]]:
+    history_block = _format_chat_history(state.get("chat_history", []))
     drafts = state.get("parallel_drafts", [])
     formatted_drafts = "\n\n".join(_format_draft_for_judge(draft) for draft in drafts)
     if not formatted_drafts:
         formatted_drafts = "No worker drafts were produced."
 
     judge_input = (
+        f"Conversation history:\n{history_block}\n\n"
         f"User query:\n{state['query']}\n\n"
         "Council drafts:\n"
         "- Muninn (Pragmatist): execution-focused view\n"
@@ -162,3 +169,14 @@ def _format_draft_for_judge(draft: dict[str, Any]) -> str:
     model = str(draft.get("model", "unknown"))
     content = str(draft.get("draft", "")).strip()
     return f"- Worker `{worker_id}` ({model}): {content}"
+
+
+def _format_chat_history(history: list[ChatMessage]) -> str:
+    if not history:
+        return "No prior conversation."
+    formatted = []
+    for message in history[-8:]:
+        role = str(message.get("role", "unknown"))
+        content = str(message.get("content", "")).strip()
+        formatted.append(f"- {role}: {content}")
+    return "\n".join(formatted)

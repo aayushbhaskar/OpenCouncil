@@ -24,7 +24,7 @@ async def test_pragmatic_worker_node_returns_typed_draft(
     ) -> LLMResult:
         _ = self, max_tokens
         assert temperature == 0.2
-        assert messages[1]["content"] == "design a resilient cache"
+        assert "Current user query:\ndesign a resilient cache" in messages[1]["content"]
         return LLMResult(
             ok=True,
             content="Prioritize simplicity and observability.",

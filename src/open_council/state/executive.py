@@ -14,6 +14,13 @@ class WorkerDraft(TypedDict):
     draft: str
 
 
+class ChatMessage(TypedDict):
+    """One persisted chat turn in the CLI session."""
+
+    role: str
+    content: str
+
+
 class OdinState(TypedDict):
     """
     Shared LangGraph state for Odin mode.
@@ -21,11 +28,13 @@ class OdinState(TypedDict):
     - `query`: original user prompt
     - `parallel_drafts`: worker responses gathered in parallel
     - `final_synthesis`: final judge output
+    - `chat_history`: persisted turn-by-turn conversation context
     """
 
     query: str
     parallel_drafts: Annotated[list[WorkerDraft], add]
     final_synthesis: NotRequired[str]
+    chat_history: list[ChatMessage]
 
 
 def initialize_odin_state(query: str) -> OdinState:
@@ -36,4 +45,5 @@ def initialize_odin_state(query: str) -> OdinState:
     return {
         "query": cleaned_query,
         "parallel_drafts": [],
+        "chat_history": [],
     }
