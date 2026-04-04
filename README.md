@@ -21,20 +21,20 @@ Phase 1 is now scaffolded with:
 
 **Mac/Linux one-command install (MVP):**
 ```bash
-curl -fsSL https://raw.githubusercontent.com/aayushbhaskar/open-council/main/install.sh | bash
+curl -fsSL https://aayushbhaskar.github.io/OpenCouncil/install.sh | bash
 ```
 
 This installs Open Council under `~/.open-council-app` and links `council` to `~/.local/bin`.
 
 ⚡ Optional Power-Up: The Local Fallback Engine
-For the ultimate privacy and resilience experience, we highly recommend installing Ollama before your first run. Install from [Ollama Downloads](https://ollama.com/download). If Open Council detects Ollama running on localhost, it will automatically use it as a zero-cost safety net if your cloud APIs hit rate limits. Once Ollama is installed, just run `ollama pull llama3` in your terminal.
+For privacy and resilience, install Ollama from [Ollama Downloads](https://ollama.com/download). Open Council now checks Ollama readiness in detail (binary present, local server reachable, model pulled) and prints guidance before your first prompt.
 
-Open Council requires **Python 3.11+**. 
+For dev enthusiasts: Open Council requires **Python 3.11+**. 
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/aayushbhaskar/open-council.git
-cd open-council
+git clone https://github.com/aayushbhaskar/OpenCouncil.git
+cd OpenCouncil
 
 # 2. Create a virtual environment
 python3 -m venv .venv
@@ -44,8 +44,8 @@ source .venv/bin/activate
 pip install -e ".[dev]"
 
 # 4. Setup your environment variables
-# Preferred (new): Open Council stores keys in ~/.open-council/.env
-# Transitional fallback: if ~/.open-council/.env is missing but local .env exists,
+# Preferred (new): Open Council stores keys in ~/.OpenCouncil/.env
+# Transitional fallback: if ~/.OpenCouncil/.env is missing but local .env exists,
 # Open Council will still use local .env for compatibility.
 
 # 5. Run tests for fallback behavior
@@ -60,8 +60,20 @@ council --mode odin
 # - Press Ctrl+C again to exit immediately.
 ```
 
-If `~/.open-council/.env` is missing, Open Council starts a first-run wizard to
-collect keys and auto-detect Ollama before entering chat.
+If `~/.OpenCouncil/.env` is missing, Open Council starts a first-run wizard to
+collect keys and run Ollama readiness checks before entering chat.
+
+### Ollama readiness checklist
+```bash
+# 1) Start the local Ollama server
+ollama serve
+
+# 2) Pull the configured fallback model (default)
+ollama pull llama3.1
+```
+
+If your configured model differs, pull that exact model name from `OLLAMA_MODEL`
+(for example, `OLLAMA_MODEL=ollama/llama3.1` maps to `ollama pull llama3.1`).
 
 ## 🏗️ Architecture & Resilience
 Open Council is designed for "Graceful Degradation." It expects APIs to fail and handles them silently:

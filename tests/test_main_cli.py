@@ -62,6 +62,7 @@ def test_app_prints_mode_and_debug(capsys, monkeypatch) -> None:
     monkeypatch.setattr(main, "resolve_env_path", lambda console: Path("/tmp/mock.env"))
     monkeypatch.setattr(main, "ensure_env_file_with_wizard", lambda **_: True)
     monkeypatch.setattr(main, "_load_env_file", lambda env_path: None)
+    monkeypatch.setattr(main, "print_provider_readiness_summary", lambda console: None)
 
     app(["--mode", "odin", "--debug"])
     output = capsys.readouterr().out
@@ -96,6 +97,7 @@ def test_app_persists_state_across_turns(capsys, monkeypatch) -> None:
     monkeypatch.setattr(main, "resolve_env_path", lambda console: Path("/tmp/mock.env"))
     monkeypatch.setattr(main, "ensure_env_file_with_wizard", lambda **_: True)
     monkeypatch.setattr(main, "_load_env_file", lambda env_path: None)
+    monkeypatch.setattr(main, "print_provider_readiness_summary", lambda console: None)
 
     app(["--mode", "odin"])
     output = capsys.readouterr().out
@@ -130,6 +132,7 @@ def test_app_requires_slash_exit_commands(capsys, monkeypatch) -> None:
     monkeypatch.setattr(main, "resolve_env_path", lambda console: Path("/tmp/mock.env"))
     monkeypatch.setattr(main, "ensure_env_file_with_wizard", lambda **_: True)
     monkeypatch.setattr(main, "_load_env_file", lambda env_path: None)
+    monkeypatch.setattr(main, "print_provider_readiness_summary", lambda console: None)
 
     app(["--mode", "odin"])
     output = capsys.readouterr().out
@@ -168,7 +171,7 @@ def test_first_run_wizard_creates_env_file(tmp_path, monkeypatch, capsys) -> Non
 
     output = capsys.readouterr().out
     content = env_path.read_text(encoding="utf-8")
-    assert "Detected Ollama" in output
+    assert "Ollama binary detected" in output
     assert 'GROQ_API_KEY="groq-key-123"' in content
     assert 'GEMINI_API_KEY="gem-key-456"' in content
 
@@ -280,3 +283,55 @@ def test_resolve_env_path_falls_back_to_local_with_hint(tmp_path, monkeypatch, c
 
     assert resolved == local_env
     assert "Using local .env for now" in output
+
+
+def test_get_ollama_readiness_not_installed(monkeypatch) -> None:
+    from open_council import main
+
+    monkeypatch.setattr(main.shutil, "which", lambda _: None)
+    status = main.get_ollama_readiness()
+
+    assert status.state == "not_installed"
+
+
+def test_get_ollama_readiness_installed_not_running(monkeypatch) -> None:
+    from open_council import main
+
+    monkeypatch.setattr(main.shutil, "which", lambda _: "/usr/local/bin/ollama")
+
+    def _boom(url: str, *, timeout_seconds: float):
+        _ = url, timeout_seconds
+        raise OSError("connection refused")
+
+    monkeypatch.setattr(main, "_http_get_json", _boom)
+    status = main.get_ollama_readiness()
+
+    assert status.state == "installed_not_running"
+
+
+def test_get_ollama_readiness_model_missing(monkeypatch) -> None:
+    from open_council import main
+
+    monkeypatch.setattr(main.shutil, "which", lambda _: "/usr/local/bin/ollama")
+    monkeypatch.setattr(
+        main,
+        "_http_get_json",
+        lambda url, timeout_seconds: {"models": [{"name": "llama2:latest"}]},
+    )
+    status = main.get_ollama_readiness()
+
+    assert status.state == "running_model_missing"
+
+
+def test_get_ollama_readiness_ready(monkeypatch) -> None:
+    from open_council import main
+
+    monkeypatch.setattr(main.shutil, "which", lambda _: "/usr/local/bin/ollama")
+    monkeypatch.setattr(
+        main,
+        "_http_get_json",
+        lambda url, timeout_seconds: {"models": [{"name": "llama3.1:latest"}]},
+    )
+    status = main.get_ollama_readiness()
+
+    assert status.state == "ready"
