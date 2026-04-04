@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO_URL="https://github.com/aayushbhaskar/open-council.git"
+REPO_URL="https://github.com/aayushbhaskar/OpenCouncil.git"
 INSTALL_DIR="${HOME}/.open-council-app"
 VENV_DIR="${INSTALL_DIR}/venv"
 BIN_DIR="${HOME}/.local/bin"

@@ -14,10 +14,12 @@ Open Council operates through specialized agentic graphs, invoked via the CLI:
 
 ## 🚀 Quick Start
 
-Phase 1 is now scaffolded with:
-- Python package layout under `src/open_council/`
-- Core dependency setup in `pyproject.toml`
-- Async LiteLLM wrapper with Groq -> Gemini -> Ollama fallback (`open_council.core.llm`)
+Phase 1 MVP now includes:
+- Odin mode LangGraph pipeline with Muninn + Huginn workers and Odin judge synthesis
+- Async LiteLLM routing with Groq -> Gemini -> Ollama fallback (`open_council.core.llm`)
+- Interactive CLI REPL (`council --mode odin`) with `/exit`/`/quit`, resilient Ctrl+C handling, and Rich output
+- First-run setup wizard with global config at `~/.open-council/.env` (plus temporary local `.env` fallback)
+- Ollama readiness checks (installed, server reachable, model available) with actionable startup guidance
 
 **Mac/Linux one-command install (MVP):**
 ```bash
@@ -44,8 +46,8 @@ source .venv/bin/activate
 pip install -e ".[dev]"
 
 # 4. Setup your environment variables
-# Preferred (new): Open Council stores keys in ~/.OpenCouncil/.env
-# Transitional fallback: if ~/.OpenCouncil/.env is missing but local .env exists,
+# Preferred (new): Open Council stores keys in ~/.open-council/.env
+# Transitional fallback: if ~/.open-council/.env is missing but local .env exists,
 # Open Council will still use local .env for compatibility.
 
 # 5. Run tests for fallback behavior
@@ -60,7 +62,7 @@ council --mode odin
 # - Press Ctrl+C again to exit immediately.
 ```
 
-If `~/.OpenCouncil/.env` is missing, Open Council starts a first-run wizard to
+If `~/.open-council/.env` is missing, Open Council starts a first-run wizard to
 collect keys and run Ollama readiness checks before entering chat.
 
 ### Ollama readiness checklist
