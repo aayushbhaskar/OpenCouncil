@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 import termios
+from dotenv import load_dotenv
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.progress import Progress, SpinnerColumn, TextColumn
@@ -20,6 +21,11 @@ from rich.prompt import Prompt
 
 from open_council.graphs.executive_graph import build_odin_graph
 from open_council.state.executive import ChatMessage, OdinState, initialize_odin_state
+
+GLOBAL_CONFIG_DIR = Path.home() / ".open-council"
+GLOBAL_ENV_PATH = GLOBAL_CONFIG_DIR / ".env"
+LOCAL_ENV_PATH = Path(".env")
+TEMPLATE_ENV_PATH = Path(__file__).resolve().parents[2] / ".env.example"
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -78,8 +84,14 @@ def app(argv: Sequence[str] | None = None) -> None:
         console.print(f"{args.mode} mode is planned and not yet wired in Phase 1.")
         return
 
-    if not ensure_env_file_with_wizard(console=console):
+    env_path = resolve_env_path(console=console)
+    if not ensure_env_file_with_wizard(
+        console=console,
+        env_path=env_path,
+        template_path=TEMPLATE_ENV_PATH,
+    ):
         return
+    _load_env_file(env_path)
     run_odin_repl(console=console, debug=args.debug)
 
 
@@ -366,9 +378,35 @@ def ensure_env_file_with_wizard(
         if gemini_api_key
         else rendered
     )
+    env_path.parent.mkdir(parents=True, exist_ok=True)
     env_path.write_text(rendered, encoding="utf-8")
     console.print(f"[green]Created {env_path}[/green]. Update it anytime as needed.")
     return True
+
+
+def resolve_env_path(*, console: Console) -> Path:
+    """
+    Resolve canonical runtime env file path with temporary local fallback.
+
+    Resolution order:
+        1. `~/.open-council/.env` if present.
+        2. Local `./.env` fallback if present (migration bridge).
+        3. Canonical global path for wizard creation.
+    """
+    if GLOBAL_ENV_PATH.exists():
+        return GLOBAL_ENV_PATH
+    if LOCAL_ENV_PATH.exists():
+        console.print(
+            "[dim]Using local .env for now. "
+            "Run setup again to migrate to ~/.open-council/.env.[/dim]"
+        )
+        return LOCAL_ENV_PATH
+    return GLOBAL_ENV_PATH
+
+
+def _load_env_file(env_path: Path) -> None:
+    """Load environment variables from the resolved env file path."""
+    load_dotenv(dotenv_path=env_path, override=True)
 
 
 def _read_env_template(template_path: Path) -> str:

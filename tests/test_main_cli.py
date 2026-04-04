@@ -59,7 +59,9 @@ def test_app_prints_mode_and_debug(capsys, monkeypatch) -> None:
 
     monkeypatch.setattr(main.Prompt, "ask", _stub_prompt)
     monkeypatch.setattr(main, "build_odin_graph", lambda: dummy_graph)
-    monkeypatch.setattr(main, "ensure_env_file_with_wizard", lambda console: True)
+    monkeypatch.setattr(main, "resolve_env_path", lambda console: Path("/tmp/mock.env"))
+    monkeypatch.setattr(main, "ensure_env_file_with_wizard", lambda **_: True)
+    monkeypatch.setattr(main, "_load_env_file", lambda env_path: None)
 
     app(["--mode", "odin", "--debug"])
     output = capsys.readouterr().out
@@ -91,7 +93,9 @@ def test_app_persists_state_across_turns(capsys, monkeypatch) -> None:
 
     monkeypatch.setattr(main.Prompt, "ask", _stub_prompt)
     monkeypatch.setattr(main, "build_odin_graph", lambda: dummy_graph)
-    monkeypatch.setattr(main, "ensure_env_file_with_wizard", lambda console: True)
+    monkeypatch.setattr(main, "resolve_env_path", lambda console: Path("/tmp/mock.env"))
+    monkeypatch.setattr(main, "ensure_env_file_with_wizard", lambda **_: True)
+    monkeypatch.setattr(main, "_load_env_file", lambda env_path: None)
 
     app(["--mode", "odin"])
     output = capsys.readouterr().out
@@ -123,7 +127,9 @@ def test_app_requires_slash_exit_commands(capsys, monkeypatch) -> None:
 
     monkeypatch.setattr(main.Prompt, "ask", _stub_prompt)
     monkeypatch.setattr(main, "build_odin_graph", lambda: dummy_graph)
-    monkeypatch.setattr(main, "ensure_env_file_with_wizard", lambda console: True)
+    monkeypatch.setattr(main, "resolve_env_path", lambda console: Path("/tmp/mock.env"))
+    monkeypatch.setattr(main, "ensure_env_file_with_wizard", lambda **_: True)
+    monkeypatch.setattr(main, "_load_env_file", lambda env_path: None)
 
     app(["--mode", "odin"])
     output = capsys.readouterr().out
@@ -236,3 +242,41 @@ def test_first_run_wizard_keyboard_interrupt_twice_exits(tmp_path, monkeypatch, 
     assert result is False
     assert "Press Ctrl+C again to exit, or type /exit." in output
     assert "Exiting Open Council." in output
+
+
+def test_resolve_env_path_uses_global_when_present(tmp_path, monkeypatch, capsys) -> None:
+    from open_council import main
+    from rich.console import Console
+
+    global_env = tmp_path / ".open-council" / ".env"
+    global_env.parent.mkdir(parents=True, exist_ok=True)
+    global_env.write_text("GROQ_API_KEY=x\n", encoding="utf-8")
+    local_env = tmp_path / ".env"
+    local_env.write_text("GROQ_API_KEY=local\n", encoding="utf-8")
+
+    monkeypatch.setattr(main, "GLOBAL_ENV_PATH", global_env)
+    monkeypatch.setattr(main, "LOCAL_ENV_PATH", local_env)
+
+    resolved = main.resolve_env_path(console=Console())
+    output = capsys.readouterr().out
+
+    assert resolved == global_env
+    assert "Using local .env for now" not in output
+
+
+def test_resolve_env_path_falls_back_to_local_with_hint(tmp_path, monkeypatch, capsys) -> None:
+    from open_council import main
+    from rich.console import Console
+
+    global_env = tmp_path / ".open-council" / ".env"
+    local_env = tmp_path / ".env"
+    local_env.write_text("GROQ_API_KEY=local\n", encoding="utf-8")
+
+    monkeypatch.setattr(main, "GLOBAL_ENV_PATH", global_env)
+    monkeypatch.setattr(main, "LOCAL_ENV_PATH", local_env)
+
+    resolved = main.resolve_env_path(console=Console())
+    output = capsys.readouterr().out
+
+    assert resolved == local_env
+    assert "Using local .env for now" in output

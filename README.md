@@ -19,6 +19,13 @@ Phase 1 is now scaffolded with:
 - Core dependency setup in `pyproject.toml`
 - Async LiteLLM wrapper with Groq -> Gemini -> Ollama fallback (`open_council.core.llm`)
 
+**Mac/Linux one-command install (MVP):**
+```bash
+curl -fsSL https://raw.githubusercontent.com/aayushbhaskar/open-council/main/install.sh | bash
+```
+
+This installs Open Council under `~/.open-council-app` and links `council` to `~/.local/bin`.
+
 ⚡ Optional Power-Up: The Local Fallback Engine
 For the ultimate privacy and resilience experience, we highly recommend installing Ollama before your first run. Install from [Ollama Downloads](https://ollama.com/download). If Open Council detects Ollama running on localhost, it will automatically use it as a zero-cost safety net if your cloud APIs hit rate limits. Once Ollama is installed, just run `ollama pull llama3` in your terminal.
 
@@ -37,10 +44,9 @@ source .venv/bin/activate
 pip install -e ".[dev]"
 
 # 4. Setup your environment variables
-cp .env.example .env
-# Open .env and set at least GROQ_API_KEY and GEMINI_API_KEY.
-# Optional model overrides: GROQ_MODEL, GEMINI_MODEL, OLLAMA_MODEL.
-# OLLAMA_BASE_URL defaults to http://localhost:11434.
+# Preferred (new): Open Council stores keys in ~/.open-council/.env
+# Transitional fallback: if ~/.open-council/.env is missing but local .env exists,
+# Open Council will still use local .env for compatibility.
 
 # 5. Run tests for fallback behavior
 pytest -q tests/test_llm_client.py
@@ -54,8 +60,8 @@ council --mode odin
 # - Press Ctrl+C again to exit immediately.
 ```
 
-If `.env` is missing, Open Council starts a first-run wizard to collect keys and
-auto-detect Ollama before entering chat.
+If `~/.open-council/.env` is missing, Open Council starts a first-run wizard to
+collect keys and auto-detect Ollama before entering chat.
 
 ## 🏗️ Architecture & Resilience
 Open Council is designed for "Graceful Degradation." It expects APIs to fail and handles them silently:
@@ -64,7 +70,7 @@ Network Throttling: Strict asyncio.Semaphore implementation prevents 429 Rate Li
 
 Tiered Fallback Cascade: Uses LiteLLM to automatically route failed queries: Groq -> Gemini -> Local Ollama. If the cloud goes down, your local machine takes over without crashing the graph.
 
-Local Checkpointing: Planned for the next phase via SQLite-backed checkpoints (not yet wired in this MVP iteration).
+Local Checkpointing: Planned for the next phase via SQLite-backed checkpoints (not yet wired in the MVP iteration).
 
 ## 🗺️ Roadmap
 [ ] Phase 1: The Resilient MVP (Odin Mode, LiteLLM Routing, Rich CLI)
