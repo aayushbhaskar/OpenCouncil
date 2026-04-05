@@ -43,7 +43,7 @@ Open Council is built for real-world reliability:
 - Automatic fallback routing: Groq -> Gemini -> local Ollama
 - Resilient CLI UX with setup guidance and graceful interrupt handling
 
-### Why this can beat "just ChatGPT"
+### Why this can beat "just a Standard Agent"
 
 `Standard AI Agents`: one answer from one model.
 
