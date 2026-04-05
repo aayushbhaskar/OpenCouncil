@@ -1,73 +1,113 @@
 # Open Council 🏛️
 
-> **A private, multi-agent terminal workstation for deep research and system stress-testing.**
+> **Open Council - Multi-Agent LLM Orchestrator (LangGraph + LiteLLM).**
 
-Open Council is a CLI-first, open-source AI orchestrator. It replicates enterprise-grade "Council of Models" workflows by utilizing a deterministic LangGraph state machine. It seamlessly mixes zero-cost local models (Ollama) with cloud endpoints (Groq, Gemini, Bedrock) to deliver deep reasoning, code analysis, and system architecture stress-testing right in your terminal.
+Run a council of AI models in your terminal to debate, analyze, and stress-test ideas.
+
+Open Council is a CLI-first orchestrator where multiple agents collaborate: some build the plan, others attack the risks, and a final judge synthesizes a decisive answer.
+
+Think:
+- Research assistant that cross-checks itself
+- Devil's advocate for your architecture
+- AI council that debates before answering
+
+All from a single command:
+
+```bash
+council --mode odin
+```
+
+## ⚡ What happens when you run it?
+
+You ask:
+
+> "Design a scalable RAG system for real-time updates."
+
+Open Council:
+- Worker models propose practical architectures (indexing, retrieval, caching)
+- Critic models surface failure modes (latency, consistency, cost)
+- Judge model resolves conflict into one actionable verdict
+
+You get:
+- A structured recommendation
+- The key trade-off to manage
+- Immediate next steps
+
+## 🧠 Why Open Council is different
+
+Most LLM tools are single-model chats that fail hard when a provider fails.
+
+Open Council is built for real-world reliability:
+- Multi-agent debate before final answer
+- Deterministic graph workflows using LangGraph (not prompt spaghetti)
+- Automatic fallback routing: Groq -> Gemini -> local Ollama
+- Resilient CLI UX with setup guidance and graceful interrupt handling
+
+### Why this can beat "just ChatGPT"
+
+`ChatGPT`: one answer from one model.
+
+`Open Council`: multiple perspectives, explicit trade-offs, and a final synthesis designed for high-stakes decisions and system design reviews.
 
 ## 🌟 The Pantheon (Modes)
 
-Open Council operates through specialized agentic graphs, invoked via the CLI:
+Open Council operates through specialized agentic graphs:
 
-* **Odin (Executive Mode):** *[MVP In Progress]* Fast, overarching synthesis. Parallel worker models gather data, and a heavy-weight judge delivers the final truth.
-* **Artemis (Academic Mode):** *[Coming Soon]* Deep, cyclic research. An agent that scours the web, loops through citations, and rigorously peer-reviews its own findings before outputting a thesis.
-* **Leviathan (Devil's Advocate):** *[Coming Soon]* System architecture stress-testing. Feed it a design proposal, and aggressive Red Team agents will hunt for bottlenecks and security flaws.
+- **Odin (Executive Mode):** *[Available in MVP]* Parallel workers (Muninn and Huginn) + Odin judge synthesis.
+- **Artemis (Academic Mode):** *[Coming Soon]* Iterative citation-heavy research loops.
+- **Leviathan (Devil's Advocate):** *[Coming Soon]* Aggressive architecture and risk stress-testing.
 
 ## 🚀 Quick Start
 
-Phase 1 MVP now includes:
-- Odin mode LangGraph pipeline with Muninn + Huginn workers and Odin judge synthesis
-- Async LiteLLM routing with Groq -> Gemini -> Ollama fallback (`open_council.core.llm`)
-- Interactive CLI REPL (`council --mode odin`) with `/exit`/`/quit`, resilient Ctrl+C handling, and Rich output
-- First-run setup wizard with global config at `~/.open-council/.env` (plus temporary local `.env` fallback)
-- Ollama readiness checks (installed, server reachable, model available) with actionable startup guidance
+### Instant path (Mac/Linux)
 
-**Mac/Linux one-command install (MVP):**
 ```bash
 curl -fsSL https://aayushbhaskar.github.io/OpenCouncil/install.sh | bash
+council --mode odin
 ```
 
 This installs Open Council under `~/.open-council-app` and links `council` to `~/.local/bin`.
 
-⚡ Optional Power-Up: The Local Fallback Engine
-For privacy and resilience, install Ollama from [Ollama Downloads](https://ollama.com/download). Open Council now checks Ollama readiness in detail (binary present, local server reachable, model pulled) and prints guidance before your first prompt.
+### One-minute wow test
 
-For dev enthusiasts: Open Council requires **Python 3.11+**. 
+Run:
 
 ```bash
-# 1. Clone the repository
-git clone https://github.com/aayushbhaskar/OpenCouncil.git
-cd OpenCouncil
-
-# 2. Create a virtual environment
-python3 -m venv .venv
-source .venv/bin/activate
-
-# 3. Install dependencies
-pip install -e ".[dev]"
-
-# 4. Setup your environment variables
-# Preferred (new): Open Council stores keys in ~/.open-council/.env
-# Transitional fallback: if ~/.open-council/.env is missing but local .env exists,
-# Open Council will still use local .env for compatibility.
-
-# 5. Run tests for fallback behavior
-pytest -q tests/test_llm_client.py
-
-# 6. Run Odin mode
 council --mode odin
-
-# In chat:
-# - Exit commands: /exit or /quit
-# - If you press Ctrl+C once, Open Council shows guidance.
-# - Press Ctrl+C again to exit immediately.
 ```
 
-If `~/.open-council/.env` is missing, Open Council starts a first-run wizard to
-collect keys and run Ollama readiness checks before entering chat.
+Then ask:
 
-### Ollama readiness checklist
+```text
+Analyze microservices vs monolith for my startup.
+```
+
+Example response shape:
+
+```text
+The Verdict: Start with a modular monolith to ship faster and defer distributed complexity.
+The Critical Trade-off: Initial velocity now vs migration cost later.
+The Path Forward:
+1) Define strict module boundaries and contracts today.
+2) Instrument core performance paths and set scaling thresholds.
+3) Extract the first service only when measured load exceeds those thresholds.
+```
+
+### Current MVP capabilities
+
+- Odin mode LangGraph pipeline with Muninn + Huginn workers and Odin judge
+- Async LiteLLM routing with Groq -> Gemini -> Ollama fallback (`open_council.core.llm`)
+- Interactive CLI REPL with `/exit` and `/quit`
+- Graceful Ctrl+C handling (first press warns, second exits cleanly)
+- First-run setup wizard using `~/.open-council/.env` (temporary local `.env` fallback supported)
+- Ollama readiness checks (binary, server, model) with actionable guidance
+
+### Optional local fallback engine (Ollama)
+
+Install Ollama from [Ollama Downloads](https://ollama.com/download), then:
+
 ```bash
-# 1) Start the local Ollama server
+# 1) Start local Ollama server
 ollama serve
 
 # 2) Pull the configured fallback model (default)
@@ -75,22 +115,39 @@ ollama pull llama3.1
 ```
 
 If your configured model differs, pull that exact model name from `OLLAMA_MODEL`
-(for example, `OLLAMA_MODEL=ollama/llama3.1` maps to `ollama pull llama3.1`).
+(example: `OLLAMA_MODEL=ollama/llama3.1` maps to `ollama pull llama3.1`).
 
-## 🏗️ Architecture & Resilience
-Open Council is designed for "Graceful Degradation." It expects APIs to fail and handles them silently:
+If `~/.open-council/.env` is missing, Open Council launches a first-run wizard to collect keys and run provider readiness checks before chat starts.
 
-Network Throttling: Strict asyncio.Semaphore implementation prevents 429 Rate Limits from aggressive parallel generation.
+### Dev setup (Python 3.11+)
 
-Tiered Fallback Cascade: Uses LiteLLM to automatically route failed queries: Groq -> Gemini -> Local Ollama. If the cloud goes down, your local machine takes over without crashing the graph.
+```bash
+git clone https://github.com/aayushbhaskar/OpenCouncil.git
+cd OpenCouncil
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"
+pytest -q tests/test_llm_client.py
+council --mode odin
+```
 
-Local Checkpointing: Planned for the next phase via SQLite-backed checkpoints (not yet wired in the MVP iteration).
+## 🏗️ Architecture and resilience
+
+Open Council is designed for graceful degradation:
+- Network throttling via strict `asyncio.Semaphore`
+- Tiered provider fallback using LiteLLM
+- Deterministic orchestration with typed state in LangGraph
+
+Local checkpointing is planned for a later phase (SQLite-backed, not wired in MVP yet).
 
 ## 🗺️ Roadmap
-[ ] Phase 1: The Resilient MVP (Odin Mode, LiteLLM Routing, Rich CLI)
 
-[ ] Phase 2: Deep Reasoning (Artemis Mode, SQLite Memory, Web Scraping)
+- [ ] Phase 1: Resilient MVP (Odin mode, LiteLLM routing, Rich CLI)
+- [ ] Phase 2: Deep reasoning (Artemis mode, SQLite memory, web tools)
+- [ ] Phase 3: Enterprise scale (Leviathan mode, local vector memory, cloud backends)
+- [ ] Phase 4: Workstation layer (Ariadne mode, secure local file workflows)
 
-[ ] Phase 3: Enterprise Scale (Leviathan Mode, Local ChromaDB RAG, AWS Bedrock)
+## 🔎 Discoverability
 
-[ ] Phase 4: The Workstation (Ariadne Mode, Secure Local File Access)
+Suggested GitHub topics:
+`llm`, `multi-agent`, `langgraph`, `ai-orchestration`, `rag`, `llm-evaluation`, `cli-tool`, `ollama`
