@@ -68,6 +68,24 @@ council --mode odin
 
 This installs Open Council under `~/.open-council-app` and links `council` to `~/.local/bin`.
 
+### Updating Open Council
+
+To update to the latest version, re-run the installer:
+
+```bash
+curl -fsSL https://aayushbhaskar.github.io/OpenCouncil/install.sh | bash
+```
+
+Open Council also performs a lightweight startup check (best effort) and shows an update hint when your local install is behind `origin/main`.
+
+Optional startup update controls:
+- `OPEN_COUNCIL_UPDATE_CHECK=0` disables the startup check
+- `OPEN_COUNCIL_AUTO_UPDATE=1` enables opt-in auto-update on startup when behind
+- In-app configuration command:
+  - `/config` to view current runtime flags and config file path
+  - `/config set OPEN_COUNCIL_AUTO_UPDATE 1` to enable auto-update
+  - `/config set OPEN_COUNCIL_UPDATE_CHECK 0` to disable startup checks
+
 ### One-minute wow test
 
 Run:
@@ -99,6 +117,7 @@ The Path Forward:
 - Async LiteLLM routing with Groq -> Gemini -> Ollama fallback (`open_council.core.llm`)
 - Interactive CLI REPL with `/exit` and `/quit`
 - In-chat mode command: `/mode` (list) and `/mode <name>` (switch; Odin wired in MVP)
+- In-chat config command: `/config` and `/config set <KEY> <VALUE>` for update flags
 - Graceful Ctrl+C handling (first press warns, second exits cleanly)
 - First-run setup wizard using `~/.open-council/.env` (temporary local `.env` fallback supported)
 - Ollama readiness checks (binary, server, model) with actionable guidance
@@ -147,8 +166,3 @@ Local checkpointing is planned for a later phase (SQLite-backed, not wired in MV
 - [ ] Phase 2: Deep reasoning (Artemis mode, SQLite memory, web tools)
 - [ ] Phase 3: Enterprise scale (Leviathan mode, local vector memory, cloud backends)
 - [ ] Phase 4: Workstation layer (Ariadne mode, secure local file workflows)
-
-## 🔎 Discoverability
-
-Suggested GitHub topics:
-`llm`, `multi-agent`, `langgraph`, `ai-orchestration`, `rag`, `llm-evaluation`, `cli-tool`, `ollama`

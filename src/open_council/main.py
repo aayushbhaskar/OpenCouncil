@@ -9,6 +9,7 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import sys
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -29,6 +30,11 @@ from open_council.state.executive import ChatMessage, OdinState, initialize_odin
 
 ALL_MODES = ("odin", "artemis", "leviathan")
 WIRED_MODES = frozenset({"odin"})
+UPDATE_COMMAND = "curl -fsSL https://aayushbhaskar.github.io/OpenCouncil/install.sh | bash"
+CONFIGURABLE_FLAGS = (
+    "OPEN_COUNCIL_UPDATE_CHECK",
+    "OPEN_COUNCIL_AUTO_UPDATE",
+)
 
 GLOBAL_CONFIG_DIR = Path.home() / ".open-council"
 GLOBAL_ENV_PATH = GLOBAL_CONFIG_DIR / ".env"
@@ -101,6 +107,7 @@ def app(argv: Sequence[str] | None = None) -> None:
         return
     _load_env_file(env_path)
     print_provider_readiness_summary(console=console)
+    maybe_print_update_notice(console=console)
     run_odin_repl(console=console, debug=args.debug)
 
 
@@ -122,7 +129,7 @@ def run_odin_repl(console: Console, *, debug: bool = False) -> None:
     state: OdinState | None = None
     current_mode = "odin"
     interrupt_state = {"armed": False}
-    console.print("Odin ready. Type your query, '/mode', or '/exit' / '/quit' to stop.")
+    console.print("Odin ready. Type your query, '/mode', '/config', or '/exit' / '/quit' to stop.")
 
     while True:
         user_input = _prompt_with_exit_controls(
@@ -152,6 +159,9 @@ def run_odin_repl(console: Console, *, debug: bool = False) -> None:
                 current_mode=current_mode,
                 console=console,
             )
+            continue
+        if lowered.startswith("/config"):
+            _handle_config_command(command=user_input, console=console)
             continue
         if current_mode != "odin":
             console.print(
@@ -217,6 +227,61 @@ def _handle_mode_command(*, command: str, current_mode: str, console: Console) -
 
     console.print(f"\nSwitched mode to [bold]{requested_mode}[/bold].")
     return requested_mode
+
+
+def _handle_config_command(*, command: str, console: Console) -> None:
+    """
+    Process `/config` commands for runtime flag configuration.
+
+    Supported commands:
+        - `/config`
+        - `/config set <KEY> <VALUE>`
+    """
+    parts = command.strip().split(maxsplit=3)
+    env_path = resolve_env_path(console=console)
+
+    if len(parts) == 1:
+        console.print(f"\nConfig file: [bold]{env_path}[/bold]")
+        for key in CONFIGURABLE_FLAGS:
+            raw = os.getenv(key, "").strip()
+            current = raw if raw else "(unset)"
+            console.print(f"- {key} = {current}")
+        console.print("Set values with: [bold]/config set <KEY> <VALUE>[/bold]")
+        return
+
+    if len(parts) < 4 or parts[1].lower() != "set":
+        console.print(
+            "\nInvalid config command. Use [bold]/config[/bold] or "
+            "[bold]/config set <KEY> <VALUE>[/bold]."
+        )
+        return
+
+    key = parts[2].strip().upper()
+    value = parts[3].strip()
+    if key not in CONFIGURABLE_FLAGS:
+        console.print(
+            f"\nUnsupported key: {key}. "
+            f"Supported keys: {', '.join(CONFIGURABLE_FLAGS)}"
+        )
+        return
+
+    normalized = _normalize_flag_value(value)
+    if normalized is None:
+        console.print(
+            "\nUnsupported value. Use one of: 1, 0, true, false, yes, no, on, off."
+        )
+        return
+
+    template = (
+        env_path.read_text(encoding="utf-8")
+        if env_path.exists()
+        else _read_env_template(TEMPLATE_ENV_PATH)
+    )
+    rendered = _set_env_value(template, key, normalized)
+    env_path.parent.mkdir(parents=True, exist_ok=True)
+    env_path.write_text(rendered, encoding="utf-8")
+    os.environ[key] = normalized
+    console.print(f"\nUpdated [bold]{key}[/bold]={normalized} in {env_path}")
 
 
 def _prepare_state_for_turn(*, previous_state: OdinState | None, user_input: str) -> OdinState:
@@ -619,6 +684,114 @@ def _has_ollama_model(available_models: set[str], model: str) -> bool:
     if latest_alias in available_models:
         return True
     return False
+
+
+def maybe_print_update_notice(*, console: Console) -> None:
+    """
+    Print a non-blocking update notice when local checkout lags behind `origin/main`.
+
+    This check is best-effort:
+    - Skips when update checks are disabled via `OPEN_COUNCIL_UPDATE_CHECK=0`.
+    - Supports opt-in auto-update via `OPEN_COUNCIL_AUTO_UPDATE=1`.
+    - Skips when running outside a git checkout.
+    - Silently ignores git/network errors.
+    """
+    if _is_falsey_env("OPEN_COUNCIL_UPDATE_CHECK"):
+        return
+
+    repo_root = Path(__file__).resolve().parents[2]
+    if not (repo_root / ".git").exists():
+        return
+
+    current_sha = _run_git_command(repo_root, "rev-parse", "HEAD")
+    remote_line = _run_git_command(repo_root, "ls-remote", "origin", "refs/heads/main")
+    if not current_sha or not remote_line:
+        return
+
+    remote_sha = remote_line.split(maxsplit=1)[0].strip()
+    if current_sha.strip() == remote_sha:
+        return
+
+    if _is_truthy_env("OPEN_COUNCIL_AUTO_UPDATE"):
+        console.print(
+            "[yellow]Update available.[/yellow] "
+            "Auto-update is enabled; applying update now..."
+        )
+        if _run_update_command(repo_root):
+            console.print(
+                "[green]Auto-update complete.[/green] "
+                "Restart council to use the latest version."
+            )
+            return
+        console.print(
+            "[yellow]Auto-update failed.[/yellow] "
+            "To update now, exit application and run:\n"
+            f"[dim]{UPDATE_COMMAND}[/dim]\n"
+            "Then restart council to use the latest version."
+        )
+        return
+
+    console.print(
+        "[yellow]Update available.[/yellow] "
+        "To update now, exit application and run:\n"
+        f"[dim]{UPDATE_COMMAND}[/dim]\n"
+        "Then restart council to use the latest version."
+    )
+
+
+def _run_git_command(repo_root: Path, *args: str) -> str | None:
+    """Run a git command with a short timeout and return trimmed stdout."""
+    try:
+        completed = subprocess.run(
+            ["git", "-C", str(repo_root), *args],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=1.5,
+        )
+    except (subprocess.SubprocessError, OSError):
+        return None
+    output = completed.stdout.strip()
+    return output or None
+
+
+def _run_update_command(repo_root: Path) -> bool:
+    """
+    Execute the installer update command in the repository root.
+
+    Returns:
+        `True` when update command exits successfully, else `False`.
+    """
+    try:
+        subprocess.run(
+            ["/bin/sh", "-lc", UPDATE_COMMAND],
+            check=True,
+            cwd=repo_root,
+            timeout=120,
+        )
+    except (subprocess.SubprocessError, OSError):
+        return False
+    return True
+
+
+def _is_truthy_env(name: str) -> bool:
+    """Return True when env var is explicitly enabled."""
+    return os.getenv(name, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _is_falsey_env(name: str) -> bool:
+    """Return True when env var is explicitly disabled."""
+    return os.getenv(name, "").strip().lower() in {"0", "false", "no", "off"}
+
+
+def _normalize_flag_value(value: str) -> str | None:
+    """Normalize boolean-like env values to `1`/`0`, or return None."""
+    lowered = value.strip().lower()
+    if lowered in {"1", "true", "yes", "on"}:
+        return "1"
+    if lowered in {"0", "false", "no", "off"}:
+        return "0"
+    return None
 
 
 def _read_env_template(template_path: Path) -> str:

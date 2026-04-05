@@ -63,6 +63,7 @@ def test_app_prints_mode_and_debug(capsys, monkeypatch) -> None:
     monkeypatch.setattr(main, "ensure_env_file_with_wizard", lambda **_: True)
     monkeypatch.setattr(main, "_load_env_file", lambda env_path: None)
     monkeypatch.setattr(main, "print_provider_readiness_summary", lambda console: None)
+    monkeypatch.setattr(main, "maybe_print_update_notice", lambda console: None)
 
     app(["--mode", "odin", "--debug"])
     output = capsys.readouterr().out
@@ -98,6 +99,7 @@ def test_app_persists_state_across_turns(capsys, monkeypatch) -> None:
     monkeypatch.setattr(main, "ensure_env_file_with_wizard", lambda **_: True)
     monkeypatch.setattr(main, "_load_env_file", lambda env_path: None)
     monkeypatch.setattr(main, "print_provider_readiness_summary", lambda console: None)
+    monkeypatch.setattr(main, "maybe_print_update_notice", lambda console: None)
 
     app(["--mode", "odin"])
     output = capsys.readouterr().out
@@ -133,6 +135,7 @@ def test_app_requires_slash_exit_commands(capsys, monkeypatch) -> None:
     monkeypatch.setattr(main, "ensure_env_file_with_wizard", lambda **_: True)
     monkeypatch.setattr(main, "_load_env_file", lambda env_path: None)
     monkeypatch.setattr(main, "print_provider_readiness_summary", lambda console: None)
+    monkeypatch.setattr(main, "maybe_print_update_notice", lambda console: None)
 
     app(["--mode", "odin"])
     output = capsys.readouterr().out
@@ -159,6 +162,7 @@ def test_repl_mode_command_lists_modes(capsys, monkeypatch) -> None:
     monkeypatch.setattr(main, "ensure_env_file_with_wizard", lambda **_: True)
     monkeypatch.setattr(main, "_load_env_file", lambda env_path: None)
     monkeypatch.setattr(main, "print_provider_readiness_summary", lambda console: None)
+    monkeypatch.setattr(main, "maybe_print_update_notice", lambda console: None)
 
     app(["--mode", "odin"])
     output = capsys.readouterr().out
@@ -185,6 +189,7 @@ def test_repl_mode_command_rejects_unwired_mode(capsys, monkeypatch) -> None:
     monkeypatch.setattr(main, "ensure_env_file_with_wizard", lambda **_: True)
     monkeypatch.setattr(main, "_load_env_file", lambda env_path: None)
     monkeypatch.setattr(main, "print_provider_readiness_summary", lambda console: None)
+    monkeypatch.setattr(main, "maybe_print_update_notice", lambda console: None)
 
     app(["--mode", "odin"])
     output = capsys.readouterr().out
@@ -192,6 +197,66 @@ def test_repl_mode_command_rejects_unwired_mode(capsys, monkeypatch) -> None:
     assert "artemis mode is planned and not yet wired in Phase 1. Remaining on odin." in output
     assert "verdict for: question after mode command" in output
     assert len(dummy_graph.received_states) == 1
+
+
+def test_repl_config_command_lists_supported_keys(capsys, monkeypatch, tmp_path) -> None:
+    dummy_graph = _DummyGraph()
+    env_path = tmp_path / ".open-council" / ".env"
+    env_path.parent.mkdir(parents=True, exist_ok=True)
+    env_path.write_text('OPEN_COUNCIL_UPDATE_CHECK="1"\n', encoding="utf-8")
+    prompt_values = iter(["/config", "/exit"])
+
+    def _stub_prompt(_: str, default: str | None = None) -> str:
+        _ = default
+        return next(prompt_values)
+
+    from open_council import main
+
+    monkeypatch.setattr(main.Prompt, "ask", _stub_prompt)
+    monkeypatch.setattr(main, "build_odin_graph", lambda: dummy_graph)
+    monkeypatch.setattr(main, "resolve_env_path", lambda console: env_path)
+    monkeypatch.setattr(main, "ensure_env_file_with_wizard", lambda **_: True)
+    monkeypatch.setattr(main, "_load_env_file", lambda env_path: None)
+    monkeypatch.setattr(main, "print_provider_readiness_summary", lambda console: None)
+    monkeypatch.setattr(main, "maybe_print_update_notice", lambda console: None)
+
+    app(["--mode", "odin"])
+    output = capsys.readouterr().out
+
+    assert "Config file:" in output
+    assert "OPEN_COUNCIL_UPDATE_CHECK" in output
+    assert "OPEN_COUNCIL_AUTO_UPDATE" in output
+    assert len(dummy_graph.received_states) == 0
+
+
+def test_repl_config_command_sets_flag_value(capsys, monkeypatch, tmp_path) -> None:
+    dummy_graph = _DummyGraph()
+    env_path = tmp_path / ".open-council" / ".env"
+    env_path.parent.mkdir(parents=True, exist_ok=True)
+    env_path.write_text('OPEN_COUNCIL_UPDATE_CHECK="1"\n', encoding="utf-8")
+    prompt_values = iter(["/config set OPEN_COUNCIL_AUTO_UPDATE true", "/exit"])
+
+    def _stub_prompt(_: str, default: str | None = None) -> str:
+        _ = default
+        return next(prompt_values)
+
+    from open_council import main
+
+    monkeypatch.setattr(main.Prompt, "ask", _stub_prompt)
+    monkeypatch.setattr(main, "build_odin_graph", lambda: dummy_graph)
+    monkeypatch.setattr(main, "resolve_env_path", lambda console: env_path)
+    monkeypatch.setattr(main, "ensure_env_file_with_wizard", lambda **_: True)
+    monkeypatch.setattr(main, "_load_env_file", lambda env_path: None)
+    monkeypatch.setattr(main, "print_provider_readiness_summary", lambda console: None)
+    monkeypatch.setattr(main, "maybe_print_update_notice", lambda console: None)
+
+    app(["--mode", "odin"])
+    output = capsys.readouterr().out
+    content = env_path.read_text(encoding="utf-8")
+
+    assert "Updated OPEN_COUNCIL_AUTO_UPDATE=1" in output
+    assert 'OPEN_COUNCIL_AUTO_UPDATE="1"' in content
+    assert len(dummy_graph.received_states) == 0
 
 
 def test_first_run_wizard_creates_env_file(tmp_path, monkeypatch, capsys) -> None:
@@ -386,3 +451,91 @@ def test_get_ollama_readiness_ready(monkeypatch) -> None:
     status = main.get_ollama_readiness()
 
     assert status.state == "ready"
+
+
+def test_maybe_print_update_notice_when_behind(monkeypatch, capsys) -> None:
+    from open_council import main
+    from rich.console import Console
+
+    monkeypatch.setenv("OPEN_COUNCIL_AUTO_UPDATE", "0")
+    monkeypatch.setattr(main.Path, "exists", lambda _: True)
+    monkeypatch.setattr(
+        main,
+        "_run_git_command",
+        lambda repo_root, *args: (
+            "1111"
+            if args == ("rev-parse", "HEAD")
+            else "2222\trefs/heads/main"
+            if args == ("ls-remote", "origin", "refs/heads/main")
+            else None
+        ),
+    )
+
+    main.maybe_print_update_notice(console=Console())
+    output = capsys.readouterr().out
+    assert "Update available." in output
+    assert "install.sh" in output
+
+
+def test_maybe_print_update_notice_skips_when_disabled(monkeypatch, capsys) -> None:
+    from open_council import main
+    from rich.console import Console
+
+    monkeypatch.setenv("OPEN_COUNCIL_UPDATE_CHECK", "0")
+    monkeypatch.setattr(main, "_run_git_command", lambda repo_root, *args: "unexpected")
+
+    main.maybe_print_update_notice(console=Console())
+    output = capsys.readouterr().out
+    assert output == ""
+
+
+def test_maybe_print_update_notice_auto_updates_when_enabled(monkeypatch, capsys) -> None:
+    from open_council import main
+    from rich.console import Console
+
+    monkeypatch.setenv("OPEN_COUNCIL_AUTO_UPDATE", "1")
+    monkeypatch.setattr(main.Path, "exists", lambda _: True)
+    monkeypatch.setattr(
+        main,
+        "_run_git_command",
+        lambda repo_root, *args: (
+            "aaaa"
+            if args == ("rev-parse", "HEAD")
+            else "bbbb\trefs/heads/main"
+            if args == ("ls-remote", "origin", "refs/heads/main")
+            else None
+        ),
+    )
+    monkeypatch.setattr(main, "_run_update_command", lambda repo_root: True)
+
+    main.maybe_print_update_notice(console=Console())
+    output = capsys.readouterr().out
+
+    assert "Auto-update is enabled; applying update now..." in output
+    assert "Auto-update complete." in output
+
+
+def test_maybe_print_update_notice_auto_update_failure_falls_back(monkeypatch, capsys) -> None:
+    from open_council import main
+    from rich.console import Console
+
+    monkeypatch.setenv("OPEN_COUNCIL_AUTO_UPDATE", "true")
+    monkeypatch.setattr(main.Path, "exists", lambda _: True)
+    monkeypatch.setattr(
+        main,
+        "_run_git_command",
+        lambda repo_root, *args: (
+            "1111"
+            if args == ("rev-parse", "HEAD")
+            else "2222\trefs/heads/main"
+            if args == ("ls-remote", "origin", "refs/heads/main")
+            else None
+        ),
+    )
+    monkeypatch.setattr(main, "_run_update_command", lambda repo_root: False)
+
+    main.maybe_print_update_notice(console=Console())
+    output = capsys.readouterr().out
+
+    assert "Auto-update failed." in output
+    assert "install.sh" in output
