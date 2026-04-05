@@ -47,6 +47,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="council", description="Open Council CLI")
     parser.add_argument("--mode", choices=ALL_MODES, default="odin", help="Council mode to run (default: odin).")
     parser.add_argument("--debug", action="store_true", help="Enable debug mode for verbose runtime diagnostics.")
+    parser.add_argument(
+        "--show-drafts",
+        action="store_true",
+        help="Show worker drafts before the final response when supported by the active mode.",
+    )
     return parser
 
 
@@ -61,6 +66,7 @@ def app(argv: Sequence[str] | None = None) -> None:
     console.print("Open Council starting...")
     console.print(f"Mode: {args.mode}")
     console.print(f"Debug: {'enabled' if args.debug else 'disabled'}")
+    console.print(f"Show drafts: {'enabled' if args.show_drafts else 'disabled'}")
     if args.mode != "odin":
         console.print(f"{args.mode} mode is planned and not yet wired in Phase 1.")
         return
@@ -71,13 +77,14 @@ def app(argv: Sequence[str] | None = None) -> None:
     _load_env_file(env_path)
     print_provider_readiness_summary(console=console)
     maybe_print_update_notice(console=console)
-    run_odin_repl(console=console, debug=args.debug)
+    run_odin_repl(console=console, debug=args.debug, initial_show_drafts=args.show_drafts)
 
 
-def run_odin_repl(console: Console, *, debug: bool = False) -> None:
+def run_odin_repl(console: Console, *, debug: bool = False, initial_show_drafts: bool = False) -> None:
     _run_odin_repl_impl(
         console=console,
         debug=debug,
+        initial_show_drafts=initial_show_drafts,
         graph_builder=build_odin_graph,
         prompt_with_exit_controls_fn=_prompt_with_exit_controls,
         invoke_odin_graph_with_ui_fn=_invoke_odin_graph_with_ui,

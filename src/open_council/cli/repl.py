@@ -18,6 +18,7 @@ def run_odin_repl(
     console: Console,
     *,
     debug: bool = False,
+    initial_show_drafts: bool = False,
     graph_builder,
     prompt_with_exit_controls_fn,
     invoke_odin_graph_with_ui_fn,
@@ -29,6 +30,7 @@ def run_odin_repl(
     Args:
         console: Rich console used for all terminal output.
         debug: If True, re-raise graph execution exceptions after printing.
+        initial_show_drafts: Initial worker draft visibility toggle.
         graph_builder: Graph constructor callback.
         prompt_with_exit_controls_fn: Input prompt callback.
         invoke_odin_graph_with_ui_fn: Graph invoke callback with UI streaming.
@@ -43,8 +45,12 @@ def run_odin_repl(
     graph = graph_builder()
     state: OdinState | None = None
     current_mode = "odin"
+    show_drafts = initial_show_drafts
     interrupt_state = {"armed": False}
-    console.print("Odin ready. Type your query, '/mode', '/config', or '/exit' / '/quit' to stop.")
+    console.print(
+        "Odin ready. Type your query, '/mode', '/config', '/show-drafts', "
+        "or '/exit' / '/quit' to stop."
+    )
 
     while True:
         user_input = prompt_with_exit_controls_fn(
@@ -82,6 +88,13 @@ def run_odin_repl(
                 resolve_env_path_fn=resolve_env_path_fn,
             )
             continue
+        if lowered.startswith("/show-drafts"):
+            show_drafts = handle_show_drafts_command(
+                command=user_input,
+                show_drafts=show_drafts,
+                console=console,
+            )
+            continue
         if current_mode != "odin":
             console.print(
                 f"\n{current_mode} mode is selected but not wired yet. "
@@ -89,7 +102,11 @@ def run_odin_repl(
             )
             continue
 
-        state = prepare_state_for_turn(previous_state=state, user_input=user_input)
+        state = prepare_state_for_turn(
+            previous_state=state,
+            user_input=user_input,
+            show_drafts=show_drafts,
+        )
         try:
             result = asyncio.run(invoke_odin_graph_with_ui_fn(graph=graph, state=state, console=console))
         except Exception as exc:  # noqa: BLE001
@@ -102,7 +119,42 @@ def run_odin_repl(
             state=result,
             final_synthesis=result.get("final_synthesis", "No synthesis produced."),
         )
+        console.print()
+        if show_drafts:
+            print_worker_drafts(console=console, state=state)
         console.print(Markdown(state["chat_history"][-1]["content"]))
+
+
+def handle_show_drafts_command(*, command: str, show_drafts: bool, console: Console) -> bool:
+    """
+    Process `/show-drafts` command and return updated draft-visibility state.
+
+    Supported commands:
+        - `/show-drafts`
+        - `/show-drafts on`
+        - `/show-drafts off`
+    """
+    parts = command.strip().split(maxsplit=1)
+    if len(parts) == 1:
+        status = "on" if show_drafts else "off"
+        console.print(f"\nDraft visibility is currently [bold]{status}[/bold].")
+        console.print("Use [bold]/show-drafts on[/bold] or [bold]/show-drafts off[/bold].")
+        return show_drafts
+
+    value = parts[1].strip().lower()
+    if value not in {"on", "off"}:
+        console.print("\nInvalid value. Use [bold]/show-drafts on[/bold] or [bold]/show-drafts off[/bold].")
+        return show_drafts
+
+    next_value = value == "on"
+    if next_value == show_drafts:
+        status = "on" if show_drafts else "off"
+        console.print(f"\nDraft visibility is already [bold]{status}[/bold].")
+        return show_drafts
+
+    status = "on" if next_value else "off"
+    console.print(f"\nDraft visibility set to [bold]{status}[/bold].")
+    return next_value
 
 
 def handle_mode_command(*, command: str, current_mode: str, console: Console) -> str:
@@ -199,13 +251,29 @@ def handle_config_command(*, command: str, console: Console, resolve_env_path_fn
     console.print(f"\nUpdated [bold]{key}[/bold]={normalized} in {env_path}")
 
 
-def prepare_state_for_turn(*, previous_state: OdinState | None, user_input: str) -> OdinState:
+def print_worker_drafts(*, console: Console, state: OdinState) -> None:
+    """Render Muninn/Huginn worker drafts before Odin's final verdict."""
+    drafts = state.get("parallel_drafts", [])
+    if not drafts:
+        console.print("[dim]No worker drafts available for this turn.[/dim]")
+        return
+    console.print("[bold]Council drafts[/bold]")
+    for draft in drafts:
+        worker_id = str(draft.get("worker_id", "worker")).title()
+        model = str(draft.get("model", "unknown"))
+        content = str(draft.get("draft", "")).strip() or "(empty draft)"
+        console.print(f"[bold]{worker_id}[/bold] ({model})")
+        console.print(Markdown(content))
+
+
+def prepare_state_for_turn(*, previous_state: OdinState | None, user_input: str, show_drafts: bool) -> OdinState:
     """
     Build the input state for the next Odin turn.
 
     Args:
         previous_state: State from prior turn, if any.
         user_input: Current user message text.
+        show_drafts: Runtime toggle for draft visibility.
 
     Returns:
         Updated state carrying prior context, resetting per-turn draft buffer,
@@ -219,6 +287,7 @@ def prepare_state_for_turn(*, previous_state: OdinState | None, user_input: str)
             "query": user_input,
             "parallel_drafts": [],
         }
+    state["show_drafts"] = show_drafts
     return append_chat_message(state=state, role="user", content=user_input)
 
 

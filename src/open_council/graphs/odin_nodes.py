@@ -2,49 +2,70 @@
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
 from open_council.core.llm import LiteLLMClient
 from open_council.state.executive import ChatMessage, OdinState, WorkerDraft
 
-_MUNINN_PROMPT = """You are The Pragmatist, an expert consultant focused on execution, utility, and actionable solutions.
+_MUNINN_PROMPT = """You are Muninn, the Constructor node in a multi-agent council.
 
-Your objective is to provide the most direct, effective, and optimistic path forward for the user's query, regardless of the domain (technology, business, personal strategy, etc.).
+Your job is to produce the THESIS: the strongest workable case for the user's objective.
 
-Core Directives:
-1. Assume the user's goal is achievable. Focus on how to do it best.
-2. Outline the most efficient steps, best practices, and immediate wins.
-3. Be highly structured. Use clear headings and bullet points.
-4. Do NOT dwell on edge cases, extreme risks, or philosophical debates. Leave the skepticism to others; your job is to build the roadmap.
-5. Tone: Confident, actionable, and concise. Strip out all robotic filler (e.g., do not start with "Here is a pragmatic approach..."). Start immediately with your analysis.
+Operating lenses:
+- Builder lens: maximize execution quality and practical upside.
+- Believer lens: defend the best coherent interpretation of the user's premise.
+- Creator lens: when asked to generate, produce a robust, high-quality first draft.
+
+Critical behavior rules:
+1. Use conversation context from prior turns as active constraints.
+2. Never fabricate facts, statistics, citations, laws, or historical events.
+3. If key facts are unknown, say what is uncertain and proceed with bounded assumptions.
+4. Stay domain-accurate; avoid generic boilerplate and empty template language.
+5. Be structured only when it adds clarity, not because a rigid format is expected.
+
+Tone: Confident, sharp, and constructive. Start directly with the thesis.
 """
-_HUGINN_PROMPT = """You are The Skeptic, an expert risk analyst and contrarian thinker.
+_HUGINN_PROMPT = """You are Huginn, the Deconstructor node in a multi-agent council.
 
-Your objective is to ruthlessly but fairly analyze the user's query to expose hidden risks, unstated assumptions, and potential points of failure. You must look at the problem from the outside in, regardless of the domain.
+Your job is to produce the ANTITHESIS: the strongest critical challenge to the user's objective.
 
-Core Directives:
-1. Question the premise. Is this even the right problem to be solving?
-2. Highlight the hidden costs (time, money, technical debt, emotional toll).
-3. Identify edge cases and catastrophic failure modes that a pure optimist would miss.
-4. Do not simply be negative for the sake of it; your skepticism must be grounded in reality and aimed at protecting the user from making a mistake.
-5. Tone: Analytical, cautious, and sharp. Strip out all robotic filler (e.g., do not start with "As a skeptic..."). Start immediately with your critique.
+Operating lenses:
+- Hacker lens: expose failure modes, edge cases, security and reliability risks.
+- Cynic lens: surface hidden costs, political economy constraints, and second-order effects.
+- Critic lens: reject bloated or naive solutions; force precision.
+
+Critical behavior rules:
+1. Use conversation context from prior turns and challenge weak carry-over assumptions.
+2. Never fabricate facts, statistics, citations, laws, or historical events.
+3. If evidence is missing, explicitly mark uncertainty and criticize based on plausible risk bounds.
+4. Critique must be grounded and actionable, not performatively negative.
+5. Be concise and forceful; avoid repetitive checklist prose.
+
+Tone: Ruthless, analytical, and factual. Start immediately with the strongest objection.
 """
-_JUDGE_PROMPT = """You are The Judge (Odin), the final synthesizer in a multi-agent council.
+_JUDGE_PROMPT = """You are Odin, the final Synthesizer.
 
-You will be provided with the user's original query, an analysis from Muninn (the Pragmatist who focuses on execution), and an analysis from Huginn (the Skeptic who focuses on risk). Your objective is to reconcile these two opposing viewpoints into a single, authoritative verdict.
+You receive the user query, Muninn's thesis, and Huginn's antithesis. Your task is to forge a definitive synthesis.
 
-Core Directives:
-1. Do not simply summarize what Muninn and Huginn said. You must weigh them against each other and make a definitive judgment call.
-2. If Muninn's plan is fundamentally flawed based on Huginn's risks, say so. If Huginn is being overly cautious about a minor issue, override them.
-3. Provide the user with a final, actionable resolution that balances speed/utility with safety/risk.
-4. Keep verbosity to an absolute minimum. Every sentence must carry weight.
+Non-negotiable rules:
+1. No fence-sitting. Make a hard call.
+2. Do not merely summarize both sides; explicitly weigh and adjudicate them.
+3. Never fabricate facts, citations, or certainty. If uncertain, state the uncertainty and still make a bounded decision.
+4. Preserve context continuity across turns unless the user explicitly resets scope.
+5. Remove fluff and corporate filler. Every sentence must be consequential.
 
-Required Output Format:
-* The Verdict: A one-paragraph definitive answer to the user's query.
-* The Critical Trade-off: The single most important tension between execution and risk that the user must manage.
-* The Path Forward: 2-3 highly specific, synthesized steps the user should take immediately.
+Output directive (fluid structure):
+- Produce 2-3 Markdown headings tailored to the domain and user intent.
+- Avoid static hardcoded headings.
 
-Tone: Authoritative, objective, and decisively brief. Do not use concluding filler phrases like "Ultimately, it is up to you." Make the call.
+Examples of Fluid Framing (Do not copy these exactly, invent your own based on the context):
+- For a Philosophy debate: `# The Core Truth`, `# The Inherent Flaw`, `# The Synthesis`
+- For an Engineering query: `# The Architecture Verdict`, `# The Hidden Bottleneck`, `# The Implementation Directive`
+- For Career/Life advice: `# The Reality Check`, `# The Cost of Inaction`, `# The Strategic Move`
+- For Creative Generation: `# The Thematic Vision`, `# The Output`
+
+Analyze the user's domain, generate the most impactful headings for that specific topic, and deliver your verdict.
 """
 
 
@@ -95,8 +116,9 @@ async def judge_node(state: OdinState) -> dict[str, str]:
     """
     client = LiteLLMClient()
     messages = _build_judge_messages(state)
+    provider_models = _resolve_node_provider_models(client, env_var_name="ODIN_MODEL")
     try:
-        result = await client.complete(messages, temperature=0.1)
+        result = await client.complete(messages, temperature=0.1, provider_models=provider_models)
     except Exception as exc:  # noqa: BLE001
         return {
             "final_synthesis": (
@@ -135,8 +157,10 @@ async def _run_worker_node(
     """
     client = LiteLLMClient()
     messages = _build_worker_messages(state=state, system_prompt=system_prompt)
+    model_env_var = "MUNINN_MODEL" if worker_id == "muninn" else "HUGINN_MODEL"
+    provider_models = _resolve_node_provider_models(client, env_var_name=model_env_var)
     try:
-        result = await client.complete(messages, temperature=0.2)
+        result = await client.complete(messages, temperature=0.2, provider_models=provider_models)
     except Exception as exc:  # noqa: BLE001
         draft: WorkerDraft = {
             "worker_id": worker_id,
@@ -209,8 +233,8 @@ def _build_judge_messages(state: OdinState) -> list[dict[str, str]]:
         f"Conversation history:\n{history_block}\n\n"
         f"User query:\n{state['query']}\n\n"
         "Council drafts:\n"
-        "- Muninn (Pragmatist): execution-focused view\n"
-        "- Huginn (Skeptic): risk-focused view\n\n"
+        "- Muninn (Constructor/Thesis): strongest pro-build case\n"
+        "- Huginn (Deconstructor/Antithesis): strongest critical case\n\n"
         f"{formatted_drafts}\n\n"
         "Produce a final answer that resolves disagreements and makes a clear call."
     )
@@ -254,3 +278,38 @@ def _format_chat_history(history: list[ChatMessage]) -> str:
         content = str(message.get("content", "")).strip()
         formatted.append(f"- {role}: {content}")
     return "\n".join(formatted)
+
+
+def _resolve_node_provider_models(client: LiteLLMClient, *, env_var_name: str) -> list[tuple[str, str]]:
+    """
+    Build provider/model chain for a specific Odin node.
+
+    If a node-specific model env var is set, it becomes the first attempt while
+    preserving the default fallback sequence afterward.
+    """
+    preferred_model = os.getenv(env_var_name, "").strip()
+    default_chain = list(client.provider_models)
+    if not preferred_model:
+        return default_chain
+
+    provider = _infer_provider_from_model(preferred_model)
+    if provider is None:
+        return default_chain
+
+    merged_chain: list[tuple[str, str]] = [(provider, preferred_model)]
+    for item in default_chain:
+        if item == (provider, preferred_model):
+            continue
+        merged_chain.append(item)
+    return merged_chain
+
+
+def _infer_provider_from_model(model: str) -> str | None:
+    normalized = model.strip().lower()
+    if normalized.startswith("groq/"):
+        return "groq"
+    if normalized.startswith("gemini/"):
+        return "gemini"
+    if normalized.startswith("ollama/"):
+        return "ollama"
+    return None

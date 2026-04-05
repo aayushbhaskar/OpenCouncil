@@ -97,6 +97,31 @@ async def test_complete_prints_simple_retry_message(monkeypatch: pytest.MonkeyPa
     assert calls[1].startswith("gemini/")
 
 
+@pytest.mark.asyncio
+async def test_complete_honors_provider_model_override_chain(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[str] = []
+
+    async def _stub_acompletion(*, model: str, **_: object) -> SimpleNamespace:
+        calls.append(model)
+        if model == "gemini/custom":
+            raise RuntimeError("custom-down")
+        return _fake_response("ok")
+
+    monkeypatch.setattr("open_council.core.llm.acompletion", _stub_acompletion)
+
+    client = LiteLLMClient()
+    result = await client.complete(
+        [{"role": "user", "content": "hello"}],
+        provider_models=[
+            ("gemini", "gemini/custom"),
+            ("groq", "groq/fallback"),
+        ],
+    )
+
+    assert result.ok is True
+    assert calls == ["gemini/custom", "groq/fallback"]
+
+
 def test_configure_litellm_logging_toggles_flags() -> None:
     import litellm
 

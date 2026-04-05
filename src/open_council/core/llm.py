@@ -85,6 +85,7 @@ class LiteLLMClient:
         *,
         temperature: float = 0.2,
         max_tokens: int | None = None,
+        provider_models: list[tuple[str, str]] | None = None,
     ) -> LLMResult:
         """
         Execute chat completion with Groq -> Gemini -> Ollama fallback.
@@ -93,6 +94,9 @@ class LiteLLMClient:
             messages: OpenAI-style message array for LiteLLM completion.
             temperature: Sampling temperature sent to provider.
             max_tokens: Optional max output token cap.
+            provider_models: Optional provider/model chain override for this
+                call. When omitted, uses the default Groq -> Gemini -> Ollama
+                sequence.
 
         Returns:
             `LLMResult` containing content on success, or a safe failure object
@@ -100,7 +104,9 @@ class LiteLLMClient:
         """
         attempts: list[LLMAttempt] = []
 
-        for index, (provider, model) in enumerate(self.provider_models):
+        active_provider_models = provider_models or self.provider_models
+
+        for index, (provider, model) in enumerate(active_provider_models):
             try:
                 response = await network_throttle.run(
                     lambda: acompletion(
@@ -124,9 +130,9 @@ class LiteLLMClient:
                 )
             except Exception as exc:  # noqa: BLE001
                 attempts.append(LLMAttempt(provider=provider, model=model, error=str(exc)))
-                has_next_provider = index < len(self.provider_models) - 1
+                has_next_provider = index < len(active_provider_models) - 1
                 if has_next_provider:
-                    next_provider, _ = self.provider_models[index + 1]
+                    next_provider, _ = active_provider_models[index + 1]
                     print(
                         f"Provider retry: {provider} unavailable, trying {next_provider}..."
                     )

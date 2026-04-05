@@ -39,12 +39,14 @@ def test_parse_cli_args_defaults() -> None:
     args = parse_cli_args([])
     assert args.mode == "odin"
     assert args.debug is False
+    assert args.show_drafts is False
 
 
 def test_parse_cli_args_custom_mode_and_debug() -> None:
-    args = parse_cli_args(["--mode", "leviathan", "--debug"])
+    args = parse_cli_args(["--mode", "leviathan", "--debug", "--show-drafts"])
     assert args.mode == "leviathan"
     assert args.debug is True
+    assert args.show_drafts is True
 
 
 def test_app_prints_mode_and_debug(capsys, monkeypatch) -> None:
@@ -71,6 +73,7 @@ def test_app_prints_mode_and_debug(capsys, monkeypatch) -> None:
     assert "Open Council starting..." in output
     assert "Mode: odin" in output
     assert "Debug: enabled" in output
+    assert "Show drafts: disabled" in output
     assert "Odin ready." in output
     assert "Exiting Open Council." in output
 
@@ -117,6 +120,7 @@ def test_app_persists_state_across_turns(capsys, monkeypatch) -> None:
     assert second_history[1]["content"] == "verdict for: first question"
     assert second_history[2]["role"] == "user"
     assert second_history[2]["content"] == "second question"
+    assert dummy_graph.received_states[0]["show_drafts"] is False
 
 
 def test_app_requires_slash_exit_commands(capsys, monkeypatch) -> None:
@@ -171,6 +175,83 @@ def test_repl_mode_command_lists_modes(capsys, monkeypatch) -> None:
     assert "Available modes:" in output
     assert "Use /mode <name> to switch modes." in output
     assert len(dummy_graph.received_states) == 0
+
+
+def test_repl_show_drafts_command_toggles_setting(capsys, monkeypatch) -> None:
+    dummy_graph = _DummyGraph()
+    prompt_values = iter(["/show-drafts", "/show-drafts on", "question", "/exit"])
+
+    def _stub_prompt(_: str, default: str | None = None) -> str:
+        _ = default
+        return next(prompt_values)
+
+    from open_council import main
+
+    monkeypatch.setattr(main.Prompt, "ask", _stub_prompt)
+    monkeypatch.setattr(main, "build_odin_graph", lambda: dummy_graph)
+    monkeypatch.setattr(main, "resolve_env_path", lambda console: Path("/tmp/mock.env"))
+    monkeypatch.setattr(main, "ensure_env_file_with_wizard", lambda **_: True)
+    monkeypatch.setattr(main, "_load_env_file", lambda env_path: None)
+    monkeypatch.setattr(main, "print_provider_readiness_summary", lambda console: None)
+    monkeypatch.setattr(main, "maybe_print_update_notice", lambda console: None)
+
+    app(["--mode", "odin"])
+    output = capsys.readouterr().out
+
+    assert "Draft visibility is currently off." in output
+    assert "Draft visibility set to on." in output
+    assert "Council drafts" in output
+    assert dummy_graph.received_states[0]["show_drafts"] is True
+
+
+def test_show_drafts_flag_enables_worker_draft_printing(capsys, monkeypatch) -> None:
+    dummy_graph = _DummyGraph()
+    prompt_values = iter(["question", "/exit"])
+
+    def _stub_prompt(_: str, default: str | None = None) -> str:
+        _ = default
+        return next(prompt_values)
+
+    from open_council import main
+
+    monkeypatch.setattr(main.Prompt, "ask", _stub_prompt)
+    monkeypatch.setattr(main, "build_odin_graph", lambda: dummy_graph)
+    monkeypatch.setattr(main, "resolve_env_path", lambda console: Path("/tmp/mock.env"))
+    monkeypatch.setattr(main, "ensure_env_file_with_wizard", lambda **_: True)
+    monkeypatch.setattr(main, "_load_env_file", lambda env_path: None)
+    monkeypatch.setattr(main, "print_provider_readiness_summary", lambda console: None)
+    monkeypatch.setattr(main, "maybe_print_update_notice", lambda console: None)
+
+    app(["--mode", "odin", "--show-drafts"])
+    output = capsys.readouterr().out
+
+    assert "Show drafts: enabled" in output
+    assert "Council drafts" in output
+    assert dummy_graph.received_states[0]["show_drafts"] is True
+
+
+def test_repl_prints_blank_line_before_model_output(capsys, monkeypatch) -> None:
+    dummy_graph = _DummyGraph()
+    prompt_values = iter(["question", "/exit"])
+
+    def _stub_prompt(_: str, default: str | None = None) -> str:
+        _ = default
+        return next(prompt_values)
+
+    from open_council import main
+
+    monkeypatch.setattr(main.Prompt, "ask", _stub_prompt)
+    monkeypatch.setattr(main, "build_odin_graph", lambda: dummy_graph)
+    monkeypatch.setattr(main, "resolve_env_path", lambda console: Path("/tmp/mock.env"))
+    monkeypatch.setattr(main, "ensure_env_file_with_wizard", lambda **_: True)
+    monkeypatch.setattr(main, "_load_env_file", lambda env_path: None)
+    monkeypatch.setattr(main, "print_provider_readiness_summary", lambda console: None)
+    monkeypatch.setattr(main, "maybe_print_update_notice", lambda console: None)
+
+    app(["--mode", "odin"])
+    output = capsys.readouterr().out
+
+    assert "\n\nverdict for: question" in output
 
 
 def test_repl_mode_command_rejects_unwired_mode(capsys, monkeypatch) -> None:

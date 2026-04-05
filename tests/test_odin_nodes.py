@@ -21,15 +21,17 @@ async def test_pragmatic_worker_node_returns_typed_draft(
         *,
         temperature: float = 0.2,
         max_tokens: int | None = None,
+        provider_models: list[tuple[str, str]] | None = None,
     ) -> LLMResult:
         _ = self, max_tokens
         assert temperature == 0.2
         assert "Current user query:\ndesign a resilient cache" in messages[1]["content"]
+        assert provider_models is not None
         return LLMResult(
             ok=True,
             content="Prioritize simplicity and observability.",
             provider="groq",
-            model="groq/llama-3.1-70b-versatile",
+            model="groq/llama-3.3-70b-versatile",
             attempts=[],
         )
 
@@ -41,7 +43,7 @@ async def test_pragmatic_worker_node_returns_typed_draft(
     assert set(update.keys()) == {"parallel_drafts"}
     assert len(update["parallel_drafts"]) == 1
     assert update["parallel_drafts"][0]["worker_id"] == "muninn"
-    assert update["parallel_drafts"][0]["model"] == "groq/llama-3.1-70b-versatile"
+    assert update["parallel_drafts"][0]["model"] == "groq/llama-3.3-70b-versatile"
 
 
 @pytest.mark.asyncio
@@ -54,8 +56,9 @@ async def test_skeptical_worker_node_returns_safe_fallback_on_result_failure(
         *,
         temperature: float = 0.2,
         max_tokens: int | None = None,
+        provider_models: list[tuple[str, str]] | None = None,
     ) -> LLMResult:
-        _ = self, messages, temperature, max_tokens
+        _ = self, messages, temperature, max_tokens, provider_models
         return LLMResult(
             ok=False,
             content="",
@@ -86,10 +89,12 @@ async def test_judge_node_produces_final_synthesis(
         *,
         temperature: float = 0.2,
         max_tokens: int | None = None,
+        provider_models: list[tuple[str, str]] | None = None,
     ) -> LLMResult:
         _ = self, max_tokens
         assert temperature == 0.1
         assert "Council drafts:" in messages[1]["content"]
+        assert provider_models is not None
         return LLMResult(
             ok=True,
             content="Final Odin verdict.",
@@ -120,8 +125,9 @@ async def test_judge_node_returns_safe_fallback_on_exception(
         *,
         temperature: float = 0.2,
         max_tokens: int | None = None,
+        provider_models: list[tuple[str, str]] | None = None,
     ) -> LLMResult:
-        _ = self, messages, temperature, max_tokens
+        _ = self, messages, temperature, max_tokens, provider_models
         raise RuntimeError("network down")
 
     monkeypatch.setattr("open_council.core.llm.LiteLLMClient.complete", _stub_complete)
@@ -131,3 +137,44 @@ async def test_judge_node_returns_safe_fallback_on_exception(
 
     assert set(update.keys()) == {"final_synthesis"}
     assert "Unexpected error: network down." in update["final_synthesis"]
+
+
+@pytest.mark.asyncio
+async def test_worker_and_judge_use_node_specific_models(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured_provider_models: list[list[tuple[str, str]]] = []
+
+    async def _stub_complete(
+        self: object,
+        messages: list[dict[str, str]],
+        *,
+        temperature: float = 0.2,
+        max_tokens: int | None = None,
+        provider_models: list[tuple[str, str]] | None = None,
+    ) -> LLMResult:
+        _ = self, messages, temperature, max_tokens
+        captured_provider_models.append(list(provider_models or []))
+        return LLMResult(
+            ok=True,
+            content="ok",
+            provider="groq",
+            model="groq/custom",
+            attempts=[],
+        )
+
+    monkeypatch.setenv("MUNINN_MODEL", "gemini/custom-muninn")
+    monkeypatch.setenv("HUGINN_MODEL", "ollama/custom-huginn")
+    monkeypatch.setenv("ODIN_MODEL", "groq/custom-odin")
+    monkeypatch.setattr("open_council.core.llm.LiteLLMClient.complete", _stub_complete)
+
+    state = initialize_odin_state("design a resilient cache")
+    await pragmatic_worker_node(state)
+    await skeptical_worker_node(state)
+    state["parallel_drafts"] = [
+        {"worker_id": "muninn", "model": "x", "draft": "d1"},
+        {"worker_id": "huginn", "model": "y", "draft": "d2"},
+    ]
+    await judge_node(state)
+
+    assert captured_provider_models[0][0] == ("gemini", "gemini/custom-muninn")
+    assert captured_provider_models[1][0] == ("ollama", "ollama/custom-huginn")
+    assert captured_provider_models[2][0] == ("groq", "groq/custom-odin")

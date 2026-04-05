@@ -42,12 +42,14 @@ class OdinState(TypedDict):
     - `parallel_drafts`: worker responses gathered in parallel
     - `final_synthesis`: final judge output
     - `chat_history`: persisted turn-by-turn conversation context
+    - `show_drafts`: runtime UI toggle for printing worker drafts
     """
 
     query: str
     parallel_drafts: Annotated[list[WorkerDraft], add]
     final_synthesis: NotRequired[str]
     chat_history: list[ChatMessage]
+    show_drafts: NotRequired[bool]
 
 
 def initialize_odin_state(query: str) -> OdinState:
@@ -70,4 +72,5 @@ def initialize_odin_state(query: str) -> OdinState:
         "query": cleaned_query,
         "parallel_drafts": [],
         "chat_history": [],
+        "show_drafts": False,
     }
