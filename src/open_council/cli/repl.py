@@ -119,10 +119,12 @@ def run_odin_repl(
             state=result,
             final_synthesis=result.get("final_synthesis", "No synthesis produced."),
         )
-        console.print()
         if show_drafts:
             print_worker_drafts(console=console, state=state)
-        console.print(Markdown(state["chat_history"][-1]["content"]))
+        else:
+            console.print()
+        final_text = _normalize_for_render(state["chat_history"][-1]["content"])
+        console.print(Markdown(final_text))
 
 
 def handle_show_drafts_command(*, command: str, show_drafts: bool, console: Console) -> bool:
@@ -254,16 +256,25 @@ def handle_config_command(*, command: str, console: Console, resolve_env_path_fn
 def print_worker_drafts(*, console: Console, state: OdinState) -> None:
     """Render Muninn/Huginn worker drafts before Odin's final verdict."""
     drafts = state.get("parallel_drafts", [])
+    console.print()
     if not drafts:
         console.print("[dim]No worker drafts available for this turn.[/dim]")
         return
     console.print("[bold]Council drafts[/bold]")
-    for draft in drafts:
+    for index, draft in enumerate(drafts):
+        if index > 0:
+            console.print()
         worker_id = str(draft.get("worker_id", "worker")).title()
         model = str(draft.get("model", "unknown"))
-        content = str(draft.get("draft", "")).strip() or "(empty draft)"
+        content = _normalize_for_render(str(draft.get("draft", ""))) or "(empty draft)"
         console.print(f"[bold]{worker_id}[/bold] ({model})")
         console.print(Markdown(content))
+    console.print()
+
+
+def _normalize_for_render(content: str) -> str:
+    """Trim surrounding blank space to keep REPL spacing consistent."""
+    return content.strip()
 
 
 def prepare_state_for_turn(*, previous_state: OdinState | None, user_input: str, show_drafts: bool) -> OdinState:
