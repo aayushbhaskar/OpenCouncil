@@ -61,6 +61,7 @@ def ensure_env_file_with_wizard(
         `False` when the user exits during the wizard.
     """
     if env_path.exists():
+        console.print(f"[dim]Using existing config: {env_path}[/dim]")
         return True
 
     console.print("[yellow].env not found. Starting first-run setup.[/yellow]")

@@ -75,7 +75,7 @@ class LiteLLMClient:
         """
         self.timeout_seconds = float(os.getenv("LITELLM_TIMEOUT_SECONDS", "30"))
         self.provider_models = [
-            ("groq", os.getenv("GROQ_MODEL", "groq/llama-3.1-70b-versatile")),
+            ("groq", os.getenv("GROQ_MODEL", "groq/llama-3.3-70b-versatile")),
             ("gemini", os.getenv("GEMINI_MODEL", "gemini/gemini-2.5-flash")),
             ("ollama", os.getenv("OLLAMA_MODEL", "ollama/llama3.1")),
         ]
