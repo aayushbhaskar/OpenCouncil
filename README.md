@@ -1,6 +1,6 @@
 # Open Council 🏛️
 
-> **Open Council - Multi-Agent LLM Orchestrator (LangGraph + LiteLLM).**
+> **Open Council - Multi-Agent LLM Debate Orchestrator using LangGraph + LiteLLM.**
 
 Run a council of AI models in your terminal to debate, analyze, and stress-test ideas.
 
@@ -45,7 +45,7 @@ Open Council is built for real-world reliability:
 
 ### Why this can beat "just ChatGPT"
 
-`ChatGPT`: one answer from one model.
+`Standard AI Agents`: one answer from one model.
 
 `Open Council`: multiple perspectives, explicit trade-offs, and a final synthesis designed for high-stakes decisions and system design reviews.
 
@@ -98,6 +98,7 @@ The Path Forward:
 - Odin mode LangGraph pipeline with Muninn + Huginn workers and Odin judge
 - Async LiteLLM routing with Groq -> Gemini -> Ollama fallback (`open_council.core.llm`)
 - Interactive CLI REPL with `/exit` and `/quit`
+- In-chat mode command: `/mode` (list) and `/mode <name>` (switch; Odin wired in MVP)
 - Graceful Ctrl+C handling (first press warns, second exits cleanly)
 - First-run setup wizard using `~/.open-council/.env` (temporary local `.env` fallback supported)
 - Ollama readiness checks (binary, server, model) with actionable guidance

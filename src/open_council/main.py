@@ -27,6 +27,9 @@ from rich.prompt import Prompt
 from open_council.graphs.executive_graph import build_odin_graph
 from open_council.state.executive import ChatMessage, OdinState, initialize_odin_state
 
+ALL_MODES = ("odin", "artemis", "leviathan")
+WIRED_MODES = frozenset({"odin"})
+
 GLOBAL_CONFIG_DIR = Path.home() / ".open-council"
 GLOBAL_ENV_PATH = GLOBAL_CONFIG_DIR / ".env"
 LOCAL_ENV_PATH = Path(".env")
@@ -43,7 +46,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="council", description="Open Council CLI")
     parser.add_argument(
         "--mode",
-        choices=("odin", "artemis", "leviathan"),
+        choices=ALL_MODES,
         default="odin",
         help="Council mode to run (default: odin).",
     )
@@ -117,8 +120,9 @@ def run_odin_repl(console: Console, *, debug: bool = False) -> None:
     """
     graph = build_odin_graph()
     state: OdinState | None = None
+    current_mode = "odin"
     interrupt_state = {"armed": False}
-    console.print("Odin ready. Type your query, or '/exit' / '/quit' to stop.")
+    console.print("Odin ready. Type your query, '/mode', or '/exit' / '/quit' to stop.")
 
     while True:
         user_input = _prompt_with_exit_controls(
@@ -142,6 +146,19 @@ def run_odin_repl(console: Console, *, debug: bool = False) -> None:
         if lowered == "quit":
             console.print("\nTo quit, use /quit.")
             continue
+        if lowered.startswith("/mode"):
+            current_mode = _handle_mode_command(
+                command=user_input,
+                current_mode=current_mode,
+                console=console,
+            )
+            continue
+        if current_mode != "odin":
+            console.print(
+                f"\n{current_mode} mode is selected but not wired yet. "
+                "Use /mode odin to continue in Phase 1."
+            )
+            continue
 
         state = _prepare_state_for_turn(previous_state=state, user_input=user_input)
         try:
@@ -157,6 +174,49 @@ def run_odin_repl(console: Console, *, debug: bool = False) -> None:
             final_synthesis=result.get("final_synthesis", "No synthesis produced."),
         )
         console.print(Markdown(state["chat_history"][-1]["content"]))
+
+
+def _handle_mode_command(*, command: str, current_mode: str, console: Console) -> str:
+    """
+    Process `/mode` chat commands and return the selected mode.
+
+    Args:
+        command: Raw user command text.
+        current_mode: Active mode before processing the command.
+        console: Rich console for command feedback.
+
+    Returns:
+        Updated active mode. If selection is invalid or unwired, the current mode
+        is preserved.
+    """
+    parts = command.strip().split(maxsplit=1)
+    if len(parts) == 1:
+        modes = ", ".join(
+            f"{mode}{' (available)' if mode in WIRED_MODES else ' (planned)'}"
+            for mode in ALL_MODES
+        )
+        console.print(f"\nCurrent mode: [bold]{current_mode}[/bold]")
+        console.print(f"Available modes: {modes}")
+        console.print("Use [bold]/mode <name>[/bold] to switch modes.")
+        return current_mode
+
+    requested_mode = parts[1].strip().lower()
+    if requested_mode not in ALL_MODES:
+        console.print(f"\nUnknown mode: {requested_mode}")
+        console.print(f"Use [bold]/mode <name>[/bold] with one of: {', '.join(ALL_MODES)}")
+        return current_mode
+    if requested_mode not in WIRED_MODES:
+        console.print(
+            f"\n{requested_mode} mode is planned and not yet wired in Phase 1. "
+            f"Remaining on {current_mode}."
+        )
+        return current_mode
+    if requested_mode == current_mode:
+        console.print(f"\nAlready in {current_mode} mode.")
+        return current_mode
+
+    console.print(f"\nSwitched mode to [bold]{requested_mode}[/bold].")
+    return requested_mode
 
 
 def _prepare_state_for_turn(*, previous_state: OdinState | None, user_input: str) -> OdinState:

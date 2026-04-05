@@ -143,6 +143,57 @@ def test_app_requires_slash_exit_commands(capsys, monkeypatch) -> None:
     assert len(dummy_graph.received_states) == 0
 
 
+def test_repl_mode_command_lists_modes(capsys, monkeypatch) -> None:
+    dummy_graph = _DummyGraph()
+    prompt_values = iter(["/mode", "/exit"])
+
+    def _stub_prompt(_: str, default: str | None = None) -> str:
+        _ = default
+        return next(prompt_values)
+
+    from open_council import main
+
+    monkeypatch.setattr(main.Prompt, "ask", _stub_prompt)
+    monkeypatch.setattr(main, "build_odin_graph", lambda: dummy_graph)
+    monkeypatch.setattr(main, "resolve_env_path", lambda console: Path("/tmp/mock.env"))
+    monkeypatch.setattr(main, "ensure_env_file_with_wizard", lambda **_: True)
+    monkeypatch.setattr(main, "_load_env_file", lambda env_path: None)
+    monkeypatch.setattr(main, "print_provider_readiness_summary", lambda console: None)
+
+    app(["--mode", "odin"])
+    output = capsys.readouterr().out
+
+    assert "Current mode: odin" in output
+    assert "Available modes:" in output
+    assert "Use /mode <name> to switch modes." in output
+    assert len(dummy_graph.received_states) == 0
+
+
+def test_repl_mode_command_rejects_unwired_mode(capsys, monkeypatch) -> None:
+    dummy_graph = _DummyGraph()
+    prompt_values = iter(["/mode artemis", "question after mode command", "/exit"])
+
+    def _stub_prompt(_: str, default: str | None = None) -> str:
+        _ = default
+        return next(prompt_values)
+
+    from open_council import main
+
+    monkeypatch.setattr(main.Prompt, "ask", _stub_prompt)
+    monkeypatch.setattr(main, "build_odin_graph", lambda: dummy_graph)
+    monkeypatch.setattr(main, "resolve_env_path", lambda console: Path("/tmp/mock.env"))
+    monkeypatch.setattr(main, "ensure_env_file_with_wizard", lambda **_: True)
+    monkeypatch.setattr(main, "_load_env_file", lambda env_path: None)
+    monkeypatch.setattr(main, "print_provider_readiness_summary", lambda console: None)
+
+    app(["--mode", "odin"])
+    output = capsys.readouterr().out
+
+    assert "artemis mode is planned and not yet wired in Phase 1. Remaining on odin." in output
+    assert "verdict for: question after mode command" in output
+    assert len(dummy_graph.received_states) == 1
+
+
 def test_first_run_wizard_creates_env_file(tmp_path, monkeypatch, capsys) -> None:
     from open_council import main
     from rich.console import Console
