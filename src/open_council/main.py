@@ -9,6 +9,7 @@ from pathlib import Path
 from rich.console import Console
 from rich.prompt import Prompt
 
+from open_council.core.llm import configure_litellm_logging
 from open_council.cli.constants import (
     ALL_MODES,
     CONFIGURABLE_FLAGS,
@@ -58,6 +59,7 @@ def parse_cli_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 
 def app(argv: Sequence[str] | None = None) -> None:
     args = parse_cli_args(argv)
+    configure_litellm_logging(debug=args.debug)
     console = Console()
     console.print("Open Council starting...")
     console.print(f"Mode: {args.mode}")

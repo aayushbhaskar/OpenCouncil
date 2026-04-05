@@ -6,6 +6,7 @@ import os
 from dataclasses import dataclass
 from typing import Any
 
+import litellm
 from litellm import acompletion
 
 from open_council.core.throttle import network_throttle
@@ -78,7 +79,6 @@ class LiteLLMClient:
             ("gemini", os.getenv("GEMINI_MODEL", "gemini/gemini-2.5-flash")),
             ("ollama", os.getenv("OLLAMA_MODEL", "ollama/llama3.1")),
         ]
-
     async def complete(
         self,
         messages: list[dict[str, str]],
@@ -100,7 +100,7 @@ class LiteLLMClient:
         """
         attempts: list[LLMAttempt] = []
 
-        for provider, model in self.provider_models:
+        for index, (provider, model) in enumerate(self.provider_models):
             try:
                 response = await network_throttle.run(
                     lambda: acompletion(
@@ -124,6 +124,12 @@ class LiteLLMClient:
                 )
             except Exception as exc:  # noqa: BLE001
                 attempts.append(LLMAttempt(provider=provider, model=model, error=str(exc)))
+                has_next_provider = index < len(self.provider_models) - 1
+                if has_next_provider:
+                    next_provider, _ = self.provider_models[index + 1]
+                    print(
+                        f"Provider retry: {provider} unavailable, trying {next_provider}..."
+                    )
 
         return LLMResult(
             ok=False,
@@ -170,3 +176,17 @@ class LiteLLMClient:
             return response.choices[0].message.content or ""
         except Exception:  # noqa: BLE001
             return ""
+
+
+def configure_litellm_logging(*, debug: bool) -> None:
+    """
+    Configure LiteLLM diagnostics verbosity for CLI runtime.
+
+    Args:
+        debug: When True, allow verbose LiteLLM diagnostics.
+    """
+    litellm.suppress_debug_info = not debug
+    if debug:
+        os.environ["LITELLM_LOG"] = "DEBUG"
+    else:
+        os.environ.pop("LITELLM_LOG", None)
