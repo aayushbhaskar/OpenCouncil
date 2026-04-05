@@ -259,6 +259,65 @@ def test_repl_config_command_sets_flag_value(capsys, monkeypatch, tmp_path) -> N
     assert len(dummy_graph.received_states) == 0
 
 
+def test_repl_config_then_exit_does_not_invoke_graph(capsys, monkeypatch, tmp_path) -> None:
+    dummy_graph = _DummyGraph()
+    env_path = tmp_path / ".open-council" / ".env"
+    env_path.parent.mkdir(parents=True, exist_ok=True)
+    env_path.write_text('OPEN_COUNCIL_UPDATE_CHECK="1"\n', encoding="utf-8")
+    prompt_values = iter(["/config", "/exit"])
+
+    def _stub_prompt(_: str, default: str | None = None) -> str:
+        _ = default
+        return next(prompt_values)
+
+    from open_council import main
+
+    monkeypatch.setattr(main.Prompt, "ask", _stub_prompt)
+    monkeypatch.setattr(main, "build_odin_graph", lambda: dummy_graph)
+    monkeypatch.setattr(main, "resolve_env_path", lambda console: env_path)
+    monkeypatch.setattr(main, "ensure_env_file_with_wizard", lambda **_: True)
+    monkeypatch.setattr(main, "_load_env_file", lambda env_path: None)
+    monkeypatch.setattr(main, "print_provider_readiness_summary", lambda console: None)
+    monkeypatch.setattr(main, "maybe_print_update_notice", lambda console: None)
+
+    app(["--mode", "odin"])
+    output = capsys.readouterr().out
+
+    assert "Config file:" in output
+    assert "Exiting Open Council." in output
+    assert "Graph execution failed:" not in output
+    assert len(dummy_graph.received_states) == 0
+
+
+def test_repl_handles_none_prompt_value_without_crashing(capsys, monkeypatch, tmp_path) -> None:
+    dummy_graph = _DummyGraph()
+    env_path = tmp_path / ".open-council" / ".env"
+    env_path.parent.mkdir(parents=True, exist_ok=True)
+    env_path.write_text('OPEN_COUNCIL_UPDATE_CHECK="1"\n', encoding="utf-8")
+    prompt_values = iter(["/config", None, "/exit"])
+
+    def _stub_prompt(_: str, default: str | None = None):
+        _ = default
+        return next(prompt_values)
+
+    from open_council import main
+
+    monkeypatch.setattr(main.Prompt, "ask", _stub_prompt)
+    monkeypatch.setattr(main, "build_odin_graph", lambda: dummy_graph)
+    monkeypatch.setattr(main, "resolve_env_path", lambda console: env_path)
+    monkeypatch.setattr(main, "ensure_env_file_with_wizard", lambda **_: True)
+    monkeypatch.setattr(main, "_load_env_file", lambda env_path: None)
+    monkeypatch.setattr(main, "print_provider_readiness_summary", lambda console: None)
+    monkeypatch.setattr(main, "maybe_print_update_notice", lambda console: None)
+
+    app(["--mode", "odin"])
+    output = capsys.readouterr().out
+
+    assert "Config file:" in output
+    assert "Exiting Open Council." in output
+    assert len(dummy_graph.received_states) == 0
+
+
 def test_first_run_wizard_creates_env_file(tmp_path, monkeypatch, capsys) -> None:
     from open_council import main
     from rich.console import Console

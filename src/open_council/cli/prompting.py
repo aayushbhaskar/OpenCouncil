@@ -39,7 +39,11 @@ def prompt_with_exit_controls(
     while True:
         try:
             with without_echoctl_fn():
-                user_input = ask_fn(prompt, default=default).strip()
+                raw_input = ask_fn(prompt, default=default)
+                if raw_input is None:
+                    user_input = ""
+                else:
+                    user_input = str(raw_input).strip()
         except KeyboardInterrupt:
             if interrupt_state.get("armed"):
                 console.print("\nExiting Open Council.")
