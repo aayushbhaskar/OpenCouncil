@@ -32,10 +32,35 @@ ln -sf "${VENV_DIR}/bin/council" "${EXECUTABLE}"
 
 if [[ ":${PATH}:" != *":${BIN_DIR}:"* ]]; then
   echo
-  echo "Add ${BIN_DIR} to PATH to use council globally:"
+  echo "Add ${BIN_DIR} to PATH to use council globally."
+  echo "Run now (current shell):"
   echo "  export PATH=\"${BIN_DIR}:\$PATH\""
+  echo
+  echo "Or run council directly without PATH:"
+  echo "  ${EXECUTABLE} --mode odin"
+  echo
+  if [[ -n "${SHELL:-}" ]]; then
+    case "${SHELL}" in
+      */zsh)
+        echo "Persist for future sessions:"
+        echo "  echo 'export PATH=\"${BIN_DIR}:\$PATH\"' >> ~/.zshrc"
+        ;;
+      */bash)
+        echo "Persist for future sessions:"
+        echo "  echo 'export PATH=\"${BIN_DIR}:\$PATH\"' >> ~/.bashrc"
+        ;;
+      *)
+        echo "Persist for your shell by adding this to your shell rc file:"
+        echo "  export PATH=\"${BIN_DIR}:\$PATH\""
+        ;;
+    esac
+  fi
 fi
 
 echo
 echo "Open Council installed."
-echo "Run: council --mode odin"
+if [[ ":${PATH}:" == *":${BIN_DIR}:"* ]]; then
+  echo "Run: council --mode odin"
+else
+  echo "Run: ${EXECUTABLE} --mode odin"
+fi

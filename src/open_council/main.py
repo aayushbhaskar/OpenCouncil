@@ -12,13 +12,10 @@ from rich.prompt import Prompt
 from open_council.core.llm import configure_litellm_logging
 from open_council.cli.constants import (
     ALL_MODES,
-    CONFIGURABLE_FLAGS,
-    GLOBAL_CONFIG_DIR,
     GLOBAL_ENV_PATH,
     LOCAL_ENV_PATH,
     TEMPLATE_ENV_PATH,
     UPDATE_COMMAND,
-    WIRED_MODES,
 )
 from open_council.cli.graph_ui import invoke_odin_graph_with_ui as _invoke_odin_graph_with_ui_impl
 from open_council.cli.prompting import (

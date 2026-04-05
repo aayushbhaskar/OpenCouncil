@@ -68,6 +68,18 @@ council --mode odin
 
 This installs Open Council under `~/.open-council-app` and links `council` to `~/.local/bin`.
 
+If `council` is not found after install, either:
+
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+or run directly:
+
+```bash
+~/.local/bin/council --mode odin
+```
+
 ### Updating Open Council
 
 To update to the latest version, re-run the installer:
