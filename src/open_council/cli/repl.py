@@ -51,6 +51,7 @@ def run_odin_repl(
         "Odin ready. Type your query, '/mode', '/config', '/show-drafts', "
         "or '/exit' / '/quit' to stop."
     )
+    console.print()
 
     while True:
         user_input = prompt_with_exit_controls_fn(
@@ -126,6 +127,7 @@ def run_odin_repl(
         final_text = _normalize_for_render(state["chat_history"][-1]["content"])
         console.print("[bold]Odin's Final Verdict[/bold]")
         console.print(Markdown(final_text))
+        console.print()
 
 
 def handle_show_drafts_command(*, command: str, show_drafts: bool, console: Console) -> bool:
