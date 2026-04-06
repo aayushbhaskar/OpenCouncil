@@ -25,7 +25,9 @@ council --mode odin --show-drafts
 
 ## 🎬 Odin Demo
 
-<video src="assets/Odin-demo.mp4" autoplay loop muted playsinline preload="metadata"></video>
+[Odin Demo](assets/Odin-demo.gif)
+
+[Open HD MP4](assets/Odin-demo.mp4)
 
 ## ⚡ What happens when you run it?
 
