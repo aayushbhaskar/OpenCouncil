@@ -25,9 +25,7 @@ council --mode odin --show-drafts
 
 ## 🎬 Odin Demo
 
-[Odin Demo](assets/Odin-demo.gif)
-
-[Open HD MP4](assets/Odin-demo.mp4)
+![Odin Demo](https://github.com/user-attachments/assets/7203e905-88a1-47e0-a62b-9dc5704d3d78)
 
 ## ⚡ What happens when you run it?
 
