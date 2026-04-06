@@ -204,3 +204,16 @@ Local checkpointing is planned for a later phase (SQLite-backed, not wired in MV
 - [ ] Phase 2: Deep reasoning (Artemis mode, SQLite memory, web tools)
 - [ ] Phase 3: Enterprise scale (Leviathan mode, local vector memory, cloud backends)
 - [ ] Phase 4: Workstation layer (Ariadne mode, secure local file workflows)
+
+## ⚙️ Modes and Status
+
+- **Odin (Executive Mode)** - **Available (MVP)**  
+  Parallel thesis/antithesis workers (Muninn + Huginn) with Odin synthesis; supports `/show-drafts` and per-node model overrides.
+
+- **Artemis (Academic Mode)** - **Planned (In Development)**  
+  Citation-oriented deep research mode with stronger source grounding and iterative evidence loops.
+
+- **Leviathan (Devil's Advocate Mode)** - **Planned**  
+  Aggressive stress-testing mode for architectures and decisions under adversarial assumptions.
+
+- Stay tuned, we will keep adding different modes for you to test out!
