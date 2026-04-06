@@ -201,6 +201,7 @@ def test_repl_show_drafts_command_toggles_setting(capsys, monkeypatch) -> None:
     assert "Draft visibility is currently off." in output
     assert "Draft visibility set to on." in output
     assert "Council drafts" in output
+    assert "Muninn (Thesis/Constructor)" in output
     assert dummy_graph.received_states[0]["show_drafts"] is True
 
 
@@ -227,6 +228,9 @@ def test_show_drafts_flag_enables_worker_draft_printing(capsys, monkeypatch) -> 
 
     assert "Show drafts: enabled" in output
     assert "Council drafts" in output
+    assert "Muninn (Thesis/Constructor)" in output
+    assert "Huginn (Antithesis/Deconstructor)" in output
+    assert "Odin's Final Verdict" in output
     assert dummy_graph.received_states[0]["show_drafts"] is True
 
 
@@ -251,7 +255,9 @@ def test_repl_prints_blank_line_before_model_output(capsys, monkeypatch) -> None
     app(["--mode", "odin"])
     output = capsys.readouterr().out
 
-    assert "\n\nverdict for: question" in output
+    assert "Odin's Final Verdict" in output
+    assert "\n\nOdin's Final Verdict" in output
+    assert "verdict for: question" in output
 
 
 def test_repl_mode_command_rejects_unwired_mode(capsys, monkeypatch) -> None:

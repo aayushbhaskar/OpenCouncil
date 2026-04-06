@@ -124,6 +124,7 @@ def run_odin_repl(
         else:
             console.print()
         final_text = _normalize_for_render(state["chat_history"][-1]["content"])
+        console.print("[bold]Odin's Final Verdict[/bold]")
         console.print(Markdown(final_text))
 
 
@@ -261,13 +262,19 @@ def print_worker_drafts(*, console: Console, state: OdinState) -> None:
         console.print("[dim]No worker drafts available for this turn.[/dim]")
         return
     console.print("[bold]Council drafts[/bold]")
+    role_labels = {
+        "muninn": "Thesis/Constructor",
+        "huginn": "Antithesis/Deconstructor",
+    }
     for index, draft in enumerate(drafts):
         if index > 0:
             console.print()
-        worker_id = str(draft.get("worker_id", "worker")).title()
+        worker_key = str(draft.get("worker_id", "worker")).lower()
+        worker_id = worker_key.title()
+        role_label = role_labels.get(worker_key, "Worker")
         model = str(draft.get("model", "unknown"))
         content = _normalize_for_render(str(draft.get("draft", ""))) or "(empty draft)"
-        console.print(f"[bold]{worker_id}[/bold] ({model})")
+        console.print(f"[bold]{worker_id}[/bold] ({role_label}) - {model}")
         console.print(Markdown(content))
     console.print()
 
