@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
+from rich.console import Console
+
+from open_council.cli.graph_ui import invoke_odin_graph_with_ui
 from open_council.main import app, parse_cli_args
 
 
@@ -35,11 +39,40 @@ class _DummyGraph:
         yield {"odin_judge": {"final_synthesis": f"verdict for: {state['query']}"}}
 
 
+class _DummyReactGraph:
+    async def astream(self, state: dict[str, Any], stream_mode: str = "updates"):
+        _ = stream_mode
+        yield {"muninn_reason_gate": {"muninn_retrieval": {"needs_search": True}}}
+        yield {
+            "muninn_draft": {
+                "parallel_drafts": [{"worker_id": "muninn", "model": "m1", "draft": "d1"}]
+            }
+        }
+        yield {
+            "huginn_draft": {
+                "parallel_drafts": [{"worker_id": "huginn", "model": "m2", "draft": "d2"}]
+            }
+        }
+        yield {"odin_judge": {"final_synthesis": "final"}}
+
+
 def test_parse_cli_args_defaults() -> None:
     args = parse_cli_args([])
     assert args.mode == "odin"
     assert args.debug is False
     assert args.show_drafts is False
+
+
+def test_graph_ui_handles_react_phase_node_names() -> None:
+    graph = _DummyReactGraph()
+    state = {
+        "query": "q",
+        "parallel_drafts": [],
+        "chat_history": [],
+    }
+    merged = asyncio.run(invoke_odin_graph_with_ui(graph=graph, state=state, console=Console()))
+    assert len(merged["parallel_drafts"]) == 2
+    assert merged["final_synthesis"] == "final"
 
 
 def test_parse_cli_args_custom_mode_and_debug() -> None:

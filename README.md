@@ -195,6 +195,9 @@ Open Council is designed for graceful degradation:
 - Network throttling via strict `asyncio.Semaphore`
 - Tiered provider fallback using LiteLLM
 - Deterministic orchestration with typed state in LangGraph
+- ReAct-style Odin worker phases: reason -> search query generation -> DDG search -> Jina extraction -> refine -> draft
+- Worker-controlled retrieval: Muninn and Huginn decide when web search is necessary, then gather only bounded evidence
+- UI shows phase progression for retrieval/reasoning steps without dumping raw search payloads
 
 Local checkpointing is planned for a later phase (SQLite-backed, not wired in MVP yet).
 

@@ -27,11 +27,40 @@ async def invoke_odin_graph_with_ui(*, graph: Any, state: OdinState, console: Co
 
     merged_state: OdinState = dict(state)
     node_labels = {
-        "muninn_worker": "Muninn thinking",
-        "huginn_worker": "Huginn analyzing risk",
+        "muninn_reason_gate": "Muninn reasoning",
+        "muninn_query_gen": "Muninn generating search queries",
+        "muninn_search": "Muninn searching web",
+        "muninn_extract": "Muninn extracting pages",
+        "muninn_reason_refine": "Muninn refining with evidence",
+        "muninn_draft": "Muninn drafting thesis",
+        "huginn_reason_gate": "Huginn reasoning",
+        "huginn_query_gen": "Huginn generating search queries",
+        "huginn_search": "Huginn searching web",
+        "huginn_extract": "Huginn extracting pages",
+        "huginn_reason_refine": "Huginn refining with evidence",
+        "huginn_draft": "Huginn drafting antithesis",
         "odin_judge": "Odin judging",
     }
+    worker_chains = {
+        "muninn": [
+            "muninn_reason_gate",
+            "muninn_query_gen",
+            "muninn_search",
+            "muninn_extract",
+            "muninn_reason_refine",
+            "muninn_draft",
+        ],
+        "huginn": [
+            "huginn_reason_gate",
+            "huginn_query_gen",
+            "huginn_search",
+            "huginn_extract",
+            "huginn_reason_refine",
+            "huginn_draft",
+        ],
+    }
     completed_nodes: set[str] = set()
+    started_nodes: set[str] = set()
 
     with Progress(
         SpinnerColumn(),
@@ -43,8 +72,10 @@ async def invoke_odin_graph_with_ui(*, graph: Any, state: OdinState, console: Co
             node: progress.add_task(description=node_labels[node], total=1, start=False)
             for node in node_labels
         }
-        progress.start_task(task_ids["muninn_worker"])
-        progress.start_task(task_ids["huginn_worker"])
+        progress.start_task(task_ids["muninn_reason_gate"])
+        progress.start_task(task_ids["huginn_reason_gate"])
+        started_nodes.add("muninn_reason_gate")
+        started_nodes.add("huginn_reason_gate")
 
         async for chunk in graph.astream(state, stream_mode="updates"):
             node_name = extract_node_name(chunk)
@@ -53,10 +84,23 @@ async def invoke_odin_graph_with_ui(*, graph: Any, state: OdinState, console: Co
 
             if node_name in task_ids and node_name not in completed_nodes:
                 completed_nodes.add(node_name)
+                if node_name not in started_nodes:
+                    progress.start_task(task_ids[node_name])
+                    started_nodes.add(node_name)
                 progress.update(task_ids[node_name], completed=1)
 
-                if {"muninn_worker", "huginn_worker"}.issubset(completed_nodes) and "odin_judge" not in completed_nodes:
+                for chain in worker_chains.values():
+                    if node_name in chain:
+                        index = chain.index(node_name)
+                        if index + 1 < len(chain):
+                            next_node = chain[index + 1]
+                            if next_node not in started_nodes:
+                                progress.start_task(task_ids[next_node])
+                                started_nodes.add(next_node)
+
+                if {"muninn_draft", "huginn_draft"}.issubset(completed_nodes) and "odin_judge" not in started_nodes:
                     progress.start_task(task_ids["odin_judge"])
+                    started_nodes.add("odin_judge")
 
     return merged_state
 

@@ -122,6 +122,23 @@ async def test_complete_honors_provider_model_override_chain(monkeypatch: pytest
     assert calls == ["gemini/custom", "groq/fallback"]
 
 
+@pytest.mark.asyncio
+async def test_complete_hard_times_out_provider_call(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def _slow_acompletion(*, model: str, **_: object) -> SimpleNamespace:
+        _ = model
+        await __import__("asyncio").sleep(6.2)
+        return _fake_response("late")
+
+    monkeypatch.setattr("open_council.core.llm.acompletion", _slow_acompletion)
+    monkeypatch.setenv("LITELLM_TIMEOUT_SECONDS", "0.01")
+
+    client = LiteLLMClient()
+    result = await client.complete([{"role": "user", "content": "hello"}])
+
+    assert result.ok is False
+    assert result.error is not None
+
+
 def test_configure_litellm_logging_toggles_flags() -> None:
     import litellm
 

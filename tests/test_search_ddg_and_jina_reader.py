@@ -53,6 +53,28 @@ async def test_ddg_provider_returns_safe_error_on_rate_limit(
 
 
 @pytest.mark.asyncio
+async def test_ddg_provider_returns_safe_error_on_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = DuckDuckGoSearchProvider()
+    provider.search_timeout_seconds = 0.01
+
+    def _stub_sync_search(_: str, __: int) -> list[dict[str, str]]:
+        import time
+
+        time.sleep(0.05)
+        return []
+
+    monkeypatch.setattr(provider, "_search_sync", _stub_sync_search)
+
+    results = await provider.search("open council")
+
+    assert len(results) == 1
+    assert results[0].title == "Search unavailable"
+    assert "timed out" in results[0].snippet
+
+
+@pytest.mark.asyncio
 async def test_jina_reader_returns_jina_markdown(monkeypatch: pytest.MonkeyPatch) -> None:
     reader = JinaReader(timeout_seconds=10.0)
 

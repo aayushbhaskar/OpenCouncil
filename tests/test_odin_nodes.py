@@ -4,7 +4,19 @@ import pytest
 
 from open_council.core.llm import LLMResult
 from open_council.graphs.odin_nodes import (
+    huginn_draft_node,
+    huginn_extract_node,
+    huginn_query_gen_node,
+    huginn_reason_gate_node,
+    huginn_reason_refine_node,
+    huginn_search_node,
     judge_node,
+    muninn_draft_node,
+    muninn_extract_node,
+    muninn_query_gen_node,
+    muninn_reason_gate_node,
+    muninn_reason_refine_node,
+    muninn_search_node,
     pragmatic_worker_node,
     skeptical_worker_node,
 )
@@ -178,3 +190,137 @@ async def test_worker_and_judge_use_node_specific_models(monkeypatch: pytest.Mon
     assert captured_provider_models[0][0] == ("gemini", "gemini/custom-muninn")
     assert captured_provider_models[1][0] == ("ollama", "ollama/custom-huginn")
     assert captured_provider_models[2][0] == ("groq", "groq/custom-odin")
+
+
+@pytest.mark.asyncio
+async def test_reason_gate_sets_needs_search_and_note(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def _stub_complete(
+        self: object,
+        messages: list[dict[str, str]],
+        *,
+        temperature: float = 0.2,
+        max_tokens: int | None = None,
+        provider_models: list[tuple[str, str]] | None = None,
+    ) -> LLMResult:
+        _ = self, messages, temperature, max_tokens, provider_models
+        return LLMResult(
+            ok=True,
+            content="SEARCH_NEEDED: yes\nREASON: Need current policy updates.",
+            provider="groq",
+            model="groq/x",
+            attempts=[],
+        )
+
+    monkeypatch.setattr("open_council.core.llm.LiteLLMClient.complete", _stub_complete)
+    state = initialize_odin_state("What changed in AI regulation this week?")
+    update = await muninn_reason_gate_node(state)
+
+    assert "muninn_retrieval" in update
+    assert update["muninn_retrieval"]["needs_search"] is True
+    assert "policy updates" in update["muninn_retrieval"]["reasoning_note"]
+
+
+@pytest.mark.asyncio
+async def test_query_search_extract_pipeline_respects_budget(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def _stub_complete(
+        self: object,
+        messages: list[dict[str, str]],
+        *,
+        temperature: float = 0.2,
+        max_tokens: int | None = None,
+        provider_models: list[tuple[str, str]] | None = None,
+    ) -> LLMResult:
+        _ = self, messages, temperature, max_tokens, provider_models
+        return LLMResult(
+            ok=True,
+            content="q1\nq2\nq3",
+            provider="groq",
+            model="groq/x",
+            attempts=[],
+        )
+
+    class _FakeProvider:
+        async def search(self, query: str, *, max_results: int = 5):
+            _ = query
+            return [
+                type(
+                    "R",
+                    (),
+                    {
+                        "title": f"t{i}",
+                        "url": f"https://example.com/{i}",
+                        "snippet": "s",
+                        "source": "duckduckgo",
+                    },
+                )()
+                for i in range(max_results + 2)
+            ]
+
+    class _FakeReader:
+        def __init__(self, timeout_seconds: float = 10.0) -> None:
+            _ = timeout_seconds
+
+        async def fetch_markdown(self, url: str) -> str:
+            return f"content for {url}"
+
+    monkeypatch.setattr("open_council.core.llm.LiteLLMClient.complete", _stub_complete)
+    monkeypatch.setattr("open_council.graphs.odin_nodes.DuckDuckGoSearchProvider", _FakeProvider)
+    monkeypatch.setattr("open_council.graphs.odin_nodes.JinaReader", _FakeReader)
+
+    state = initialize_odin_state("Assess latest CVE impact")
+    state["muninn_retrieval"] = {
+        "needs_search": True,
+        "reasoning_note": "Need external evidence",
+        "search_queries": [],
+        "search_hits": [],
+        "extracted_pages": [],
+        "refined_reasoning": "",
+    }
+    query_update = await muninn_query_gen_node(state)
+    state.update(query_update)
+    assert len(state["muninn_retrieval"]["search_queries"]) == 2
+
+    search_update = await muninn_search_node(state)
+    state.update(search_update)
+    assert len(state["muninn_retrieval"]["search_hits"]) == 5
+
+    extract_update = await muninn_extract_node(state)
+    state.update(extract_update)
+    assert len(state["muninn_retrieval"]["extracted_pages"]) == 5
+
+
+@pytest.mark.asyncio
+async def test_huginn_no_search_path_skips_retrieval_and_still_drafts(monkeypatch: pytest.MonkeyPatch) -> None:
+    sequence = iter(
+        [
+            LLMResult(ok=True, content="SEARCH_NEEDED: no\nREASON: Stable topic.", provider="groq", model="g", attempts=[]),
+            LLMResult(ok=True, content="refined reasoning", provider="groq", model="g", attempts=[]),
+            LLMResult(ok=True, content="final draft", provider="groq", model="g", attempts=[]),
+        ]
+    )
+
+    async def _stub_complete(
+        self: object,
+        messages: list[dict[str, str]],
+        *,
+        temperature: float = 0.2,
+        max_tokens: int | None = None,
+        provider_models: list[tuple[str, str]] | None = None,
+    ) -> LLMResult:
+        _ = self, messages, temperature, max_tokens, provider_models
+        return next(sequence)
+
+    monkeypatch.setattr("open_council.core.llm.LiteLLMClient.complete", _stub_complete)
+
+    state = initialize_odin_state("Foundational concept question")
+    state.update(await huginn_reason_gate_node(state))
+    state.update(await huginn_query_gen_node(state))
+    state.update(await huginn_search_node(state))
+    state.update(await huginn_extract_node(state))
+    state.update(await huginn_reason_refine_node(state))
+    draft_update = await huginn_draft_node(state)
+
+    assert state["huginn_retrieval"]["needs_search"] is False
+    assert state["huginn_retrieval"]["search_queries"] == []
+    assert state["huginn_retrieval"]["search_hits"] == []
+    assert draft_update["parallel_drafts"][0]["worker_id"] == "huginn"

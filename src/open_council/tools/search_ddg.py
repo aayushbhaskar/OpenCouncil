@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
+import os
 from typing import Any
 
 from duckduckgo_search import DDGS
@@ -24,6 +26,7 @@ class DuckDuckGoSearchProvider(BaseSearchProvider):
     """
 
     provider_name = "duckduckgo"
+    search_timeout_seconds = 15.0
 
     async def search(self, query: str, *, max_results: int = 5) -> list[SearchResult]:
         """
@@ -42,8 +45,10 @@ class DuckDuckGoSearchProvider(BaseSearchProvider):
 
         try:
             raw_results = await asyncio.to_thread(
-                self._search_sync, cleaned_query, bounded_results
+                self._search_sync_with_timeout, cleaned_query, bounded_results
             )
+        except FutureTimeoutError as exc:
+            return [self._error_result(f"DuckDuckGo search timed out: {exc}")]
         except RatelimitException as exc:
             return [self._error_result(f"DuckDuckGo rate limited: {exc}")]
         except (TimeoutException, DuckDuckGoSearchException) as exc:
@@ -52,6 +57,20 @@ class DuckDuckGoSearchProvider(BaseSearchProvider):
             return [self._error_result(f"Unexpected search error: {exc}")]
 
         return [self._normalize_result(item) for item in raw_results]
+
+    def _search_sync_with_timeout(self, query: str, max_results: int) -> list[dict[str, Any]]:
+        """
+        Run sync search in an isolated worker thread with hard timeout.
+
+        This prevents indefinite blocking in DDG internals from freezing the
+        event loop turn.
+        """
+        executor = ThreadPoolExecutor(max_workers=1)
+        try:
+            future = executor.submit(self._search_sync, query, max_results)
+            return future.result(timeout=self.search_timeout_seconds)
+        finally:
+            executor.shutdown(wait=False, cancel_futures=True)
 
     def _search_sync(self, query: str, max_results: int) -> list[dict[str, Any]]:
         """
@@ -64,8 +83,10 @@ class DuckDuckGoSearchProvider(BaseSearchProvider):
         Returns:
             Raw DDG result dictionaries.
         """
-        with DDGS() as ddgs:
-            return list(ddgs.text(query, max_results=max_results))
+        backend = os.getenv("OPEN_COUNCIL_DDG_BACKEND", "lite").strip() or "lite"
+        timeout_seconds = max(1, int(self.search_timeout_seconds))
+        with DDGS(timeout=timeout_seconds) as ddgs:
+            return list(ddgs.text(query, backend=backend, max_results=max_results))
 
     def _normalize_result(self, result: dict[str, Any]) -> SearchResult:
         """

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 from dataclasses import dataclass
 from typing import Any
@@ -108,15 +109,18 @@ class LiteLLMClient:
 
         for index, (provider, model) in enumerate(active_provider_models):
             try:
-                response = await network_throttle.run(
-                    lambda: acompletion(
-                        model=model,
-                        messages=messages,
-                        temperature=temperature,
-                        max_tokens=max_tokens,
-                        timeout=self.timeout_seconds,
-                        **self._provider_kwargs(provider),
-                    )
+                response = await asyncio.wait_for(
+                    network_throttle.run(
+                        lambda: acompletion(
+                            model=model,
+                            messages=messages,
+                            temperature=temperature,
+                            max_tokens=max_tokens,
+                            timeout=self.timeout_seconds,
+                            **self._provider_kwargs(provider),
+                        )
+                    ),
+                    timeout=self.timeout_seconds + 5.0,
                 )
                 content = self._extract_content(response)
                 attempts.append(LLMAttempt(provider=provider, model=model))
