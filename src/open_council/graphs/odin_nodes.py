@@ -24,6 +24,8 @@ _MAX_QUERIES_PER_WORKER = 2
 _MAX_SEARCH_RESULTS_PER_QUERY = 5
 _MAX_EXTRACTED_PAGES_PER_WORKER = 5
 _MAX_EXTRACT_CHARS_PER_PAGE = 2000
+_MAX_EXTRACTION_PARALLELISM = 3
+_PER_PAGE_EXTRACT_TIMEOUT_SECONDS = 8.0
 _WORKER_LLM_WALL_TIMEOUT_SECONDS = 45.0
 _JUDGE_LLM_WALL_TIMEOUT_SECONDS = 45.0
 
@@ -290,17 +292,29 @@ async def _extract_node(*, state: OdinState, worker_id: str) -> dict[str, Worker
         return _worker_context_update(worker_id=worker_id, context=context)
 
     reader = JinaReader(timeout_seconds=10.0)
-    extracted: list[WorkerExtraction] = []
-    for hit in hits[:_MAX_EXTRACTED_PAGES_PER_WORKER]:
-        url = hit.get("url", "").strip()
-        if not url:
-            continue
-        try:
-            content = await reader.fetch_markdown(url)
-        except Exception as exc:  # noqa: BLE001
-            content = f"[reader_error] Could not read {url}: {exc}"
-        compact = _compact_text(content, limit=_MAX_EXTRACT_CHARS_PER_PAGE)
-        extracted.append(WorkerExtraction(url=url, content=compact))
+    candidate_urls = [
+        hit.get("url", "").strip()
+        for hit in hits[:_MAX_EXTRACTED_PAGES_PER_WORKER]
+        if hit.get("url", "").strip()
+    ]
+
+    semaphore = asyncio.Semaphore(_MAX_EXTRACTION_PARALLELISM)
+
+    async def _fetch_one(url: str) -> WorkerExtraction:
+        async with semaphore:
+            try:
+                content = await asyncio.wait_for(
+                    reader.fetch_markdown(url),
+                    timeout=_PER_PAGE_EXTRACT_TIMEOUT_SECONDS,
+                )
+            except asyncio.TimeoutError:
+                content = f"[reader_error] Could not read {url}: extraction timed out"
+            except Exception as exc:  # noqa: BLE001
+                content = f"[reader_error] Could not read {url}: {exc}"
+            compact = _compact_text(content, limit=_MAX_EXTRACT_CHARS_PER_PAGE)
+            return WorkerExtraction(url=url, content=compact)
+
+    extracted = await asyncio.gather(*(_fetch_one(url) for url in candidate_urls))
     context["extracted_pages"] = extracted
     _trace(
         f"{worker_id}.extract.end",
@@ -671,6 +685,13 @@ def _infer_provider_from_model(model: str) -> str | None:
 
 def _trace(event: str, **fields: Any) -> None:
     """
-    Reserved hook for temporary node-level diagnostics.
+    Emit lightweight runtime traces for Odin phase diagnostics.
+
+    Tracing is enabled when `OPEN_COUNCIL_TRACE=1`.
     """
-    _ = event, fields
+    if os.getenv("OPEN_COUNCIL_TRACE", "0").strip() != "1":
+        return
+    suffix = ""
+    if fields:
+        suffix = " " + " ".join(f"{k}={v}" for k, v in fields.items())
+    print(f"[trace] {event}{suffix}")

@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
+import io
 import os
 from typing import Any
 
@@ -26,7 +28,7 @@ class DuckDuckGoSearchProvider(BaseSearchProvider):
     """
 
     provider_name = "duckduckgo"
-    search_timeout_seconds = 15.0
+    search_timeout_seconds = 8.0
 
     async def search(self, query: str, *, max_results: int = 5) -> list[SearchResult]:
         """
@@ -85,8 +87,11 @@ class DuckDuckGoSearchProvider(BaseSearchProvider):
         """
         backend = os.getenv("OPEN_COUNCIL_DDG_BACKEND", "lite").strip() or "lite"
         timeout_seconds = max(1, int(self.search_timeout_seconds))
-        with DDGS(timeout=timeout_seconds) as ddgs:
-            return list(ddgs.text(query, backend=backend, max_results=max_results))
+        # Suppress noisy provider impersonation warnings from leaking into CLI UI.
+        capture = io.StringIO()
+        with contextlib.redirect_stdout(capture), contextlib.redirect_stderr(capture):
+            with DDGS(timeout=timeout_seconds) as ddgs:
+                return list(ddgs.text(query, backend=backend, max_results=max_results))
 
     def _normalize_result(self, result: dict[str, Any]) -> SearchResult:
         """

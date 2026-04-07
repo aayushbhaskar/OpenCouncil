@@ -263,13 +263,20 @@ def print_worker_drafts(*, console: Console, state: OdinState) -> None:
     if not drafts:
         console.print("[dim]No worker drafts available for this turn.[/dim]")
         return
+    worker_order = {"muninn": 0, "huginn": 1}
+    ordered_drafts = sorted(
+        drafts,
+        key=lambda item: worker_order.get(str(item.get("worker_id", "")).lower(), 99),
+    )
     console.print("[bold]Council drafts[/bold]")
     role_labels = {
         "muninn": "Thesis/Constructor",
         "huginn": "Antithesis/Deconstructor",
     }
-    for index, draft in enumerate(drafts):
+    for index, draft in enumerate(ordered_drafts):
         if index > 0:
+            console.print()
+            console.print("[dim]---[/dim]")
             console.print()
         worker_key = str(draft.get("worker_id", "worker")).lower()
         worker_id = worker_key.title()
@@ -278,6 +285,8 @@ def print_worker_drafts(*, console: Console, state: OdinState) -> None:
         content = _normalize_for_render(str(draft.get("draft", ""))) or "(empty draft)"
         console.print(f"[bold]{worker_id}[/bold] ({role_label}) - {model}")
         console.print(Markdown(content))
+    console.print()
+    console.print("[bold]End of Council drafts[/bold]")
     console.print()
 
 
