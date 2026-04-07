@@ -110,6 +110,10 @@ def run_odin_repl(
         )
         try:
             result = asyncio.run(invoke_odin_graph_with_ui_fn(graph=graph, state=state, console=console))
+        except KeyboardInterrupt:
+            interrupt_state["armed"] = True
+            console.print("\n[dim]Current turn cancelled. Press Ctrl+C again to exit, or type /exit.[/dim]")
+            continue
         except Exception as exc:  # noqa: BLE001
             console.print(f"[red]Graph execution failed:[/red] {exc}")
             if debug:

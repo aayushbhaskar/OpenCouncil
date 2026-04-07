@@ -7,7 +7,12 @@ from unittest.mock import patch
 
 from rich.console import Console
 
-from open_council.cli.graph_ui import invoke_odin_graph_with_ui
+from open_council.cli.graph_ui import (
+    advance_phase_state,
+    initialize_phase_state,
+    invoke_odin_graph_with_ui,
+    render_phase_lines,
+)
 from open_council.main import app, parse_cli_args
 
 
@@ -73,6 +78,45 @@ def test_graph_ui_handles_react_phase_node_names() -> None:
     merged = asyncio.run(invoke_odin_graph_with_ui(graph=graph, state=state, console=Console()))
     assert len(merged["parallel_drafts"]) == 2
     assert merged["final_synthesis"] == "final"
+
+
+def test_graph_ui_current_step_lines_replace_prior_steps() -> None:
+    phase_state = initialize_phase_state(now=10.0)
+    console = Console(record=True, width=120)
+
+    console.print(render_phase_lines(phase_state, now=10.0))
+    text = console.export_text()
+    assert "Muninn: reasoning (0s)" in text
+    assert "Huginn: reasoning (0s)" in text
+
+    advance_phase_state(phase_state=phase_state, node_name="muninn_reason_gate", now=11.0)
+    console = Console(record=True, width=120)
+    console.print(render_phase_lines(phase_state, now=11.0))
+    text = console.export_text()
+    assert "Muninn: generating search queries" in text
+    assert "Muninn: reasoning" not in text
+    assert "Huginn: reasoning" in text
+
+    for node_name in [
+        "huginn_reason_gate",
+        "muninn_query_gen",
+        "muninn_search",
+        "muninn_extract",
+        "muninn_reason_refine",
+        "muninn_draft",
+        "huginn_query_gen",
+        "huginn_search",
+        "huginn_extract",
+        "huginn_reason_refine",
+        "huginn_draft",
+    ]:
+        advance_phase_state(phase_state=phase_state, node_name=node_name, now=12.0)
+    console = Console(record=True, width=120)
+    console.print(render_phase_lines(phase_state, now=13.0))
+    text = console.export_text()
+    assert "Odin: judging" in text
+    assert "Muninn:" not in text
+    assert "Huginn:" not in text
 
 
 def test_parse_cli_args_custom_mode_and_debug() -> None:
@@ -436,6 +480,68 @@ def test_repl_handles_none_prompt_value_without_crashing(capsys, monkeypatch, tm
     assert "Config file:" in output
     assert "Exiting Open Council." in output
     assert len(dummy_graph.received_states) == 0
+
+
+def test_repl_ctrl_c_during_execution_cancels_turn_then_allows_exit(capsys, monkeypatch) -> None:
+    dummy_graph = _DummyGraph()
+    prompt_values = iter(["question", "/exit"])
+
+    def _stub_prompt(_: str, default: str | None = None) -> str:
+        _ = default
+        return next(prompt_values)
+
+    async def _cancel_invoke(*, graph, state, console):  # noqa: ARG001
+        raise KeyboardInterrupt()
+
+    from open_council import main
+
+    monkeypatch.setattr(main.Prompt, "ask", _stub_prompt)
+    monkeypatch.setattr(main, "build_odin_graph", lambda: dummy_graph)
+    monkeypatch.setattr(main, "resolve_env_path", lambda console: Path("/tmp/mock.env"))
+    monkeypatch.setattr(main, "ensure_env_file_with_wizard", lambda **_: True)
+    monkeypatch.setattr(main, "_load_env_file", lambda env_path: None)
+    monkeypatch.setattr(main, "print_provider_readiness_summary", lambda console: None)
+    monkeypatch.setattr(main, "maybe_print_update_notice", lambda console: None)
+    monkeypatch.setattr(main, "_invoke_odin_graph_with_ui", _cancel_invoke)
+
+    app(["--mode", "odin"])
+    output = capsys.readouterr().out
+
+    assert "Current turn cancelled." in output
+    assert "Exiting Open Council." in output
+
+
+def test_repl_ctrl_c_after_cancel_exits_immediately(capsys, monkeypatch) -> None:
+    dummy_graph = _DummyGraph()
+    calls = {"n": 0}
+
+    def _stub_prompt(_: str, default: str | None = None):
+        _ = default
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return "question"
+        raise KeyboardInterrupt()
+
+    async def _cancel_invoke(*, graph, state, console):  # noqa: ARG001
+        raise KeyboardInterrupt()
+
+    from open_council import main
+
+    monkeypatch.setattr(main.Prompt, "ask", _stub_prompt)
+    monkeypatch.setattr(main, "build_odin_graph", lambda: dummy_graph)
+    monkeypatch.setattr(main, "resolve_env_path", lambda console: Path("/tmp/mock.env"))
+    monkeypatch.setattr(main, "ensure_env_file_with_wizard", lambda **_: True)
+    monkeypatch.setattr(main, "_load_env_file", lambda env_path: None)
+    monkeypatch.setattr(main, "print_provider_readiness_summary", lambda console: None)
+    monkeypatch.setattr(main, "maybe_print_update_notice", lambda console: None)
+    monkeypatch.setattr(main, "_invoke_odin_graph_with_ui", _cancel_invoke)
+
+    app(["--mode", "odin"])
+    output = capsys.readouterr().out
+
+    assert "Current turn cancelled." in output
+    assert "Press Ctrl+C again to exit, or type /exit." in output
+    assert "Exiting Open Council." in output
 
 
 def test_first_run_wizard_creates_env_file(tmp_path, monkeypatch, capsys) -> None:
