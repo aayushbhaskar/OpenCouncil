@@ -203,7 +203,7 @@ Local checkpointing is planned for a later phase (SQLite-backed, not wired in MV
 
 ## 🗺️ Roadmap
 
-- [ ] Phase 1: Resilient MVP (Odin mode, LiteLLM routing, Rich CLI)
+- [x] Phase 1: Resilient MVP (Odin mode, LiteLLM routing, Rich CLI)
 - [ ] Phase 2: Deep reasoning (Artemis mode, SQLite memory, web tools)
 - [ ] Phase 3: Enterprise scale (Leviathan mode, local vector memory, cloud backends)
 - [ ] Phase 4: Workstation layer (Ariadne mode, secure local file workflows)
