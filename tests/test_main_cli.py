@@ -551,11 +551,15 @@ def test_first_run_wizard_creates_env_file(tmp_path, monkeypatch, capsys) -> Non
     template_path = tmp_path / ".env.example"
     env_path = tmp_path / ".env"
     template_path.write_text(
-        'GROQ_API_KEY="your_groq_api_key_here"\nGEMINI_API_KEY="your_gemini_api_key_here"\n',
+        (
+            'GROQ_API_KEY="your_groq_api_key_here"\n'
+            'OPENROUTER_API_KEY="your_openrouter_api_key_here"\n'
+            'GEMINI_API_KEY="your_gemini_api_key_here"\n'
+        ),
         encoding="utf-8",
     )
 
-    prompt_values = iter(["groq-key-123", "gem-key-456"])
+    prompt_values = iter(["groq-key-123", "or-key-789", "gem-key-456"])
 
     def _stub_prompt(_: str, default: str = "") -> str:
         _ = default
@@ -574,6 +578,7 @@ def test_first_run_wizard_creates_env_file(tmp_path, monkeypatch, capsys) -> Non
     content = env_path.read_text(encoding="utf-8")
     assert "Ollama binary detected" in output
     assert 'GROQ_API_KEY="groq-key-123"' in content
+    assert 'OPENROUTER_API_KEY="or-key-789"' in content
     assert 'GEMINI_API_KEY="gem-key-456"' in content
 
 
@@ -603,7 +608,10 @@ def test_first_run_wizard_allows_exit_command(tmp_path, monkeypatch, capsys) -> 
 
     env_path = tmp_path / ".env"
     template_path = tmp_path / ".env.example"
-    template_path.write_text('GROQ_API_KEY="x"\nGEMINI_API_KEY="y"\n', encoding="utf-8")
+    template_path.write_text(
+        'GROQ_API_KEY="x"\nOPENROUTER_API_KEY="z"\nGEMINI_API_KEY="y"\n',
+        encoding="utf-8",
+    )
 
     monkeypatch.setattr(main.Prompt, "ask", lambda prompt, default="": "/exit")
 
@@ -625,7 +633,10 @@ def test_first_run_wizard_keyboard_interrupt_twice_exits(tmp_path, monkeypatch, 
 
     env_path = tmp_path / ".env"
     template_path = tmp_path / ".env.example"
-    template_path.write_text('GROQ_API_KEY="x"\nGEMINI_API_KEY="y"\n', encoding="utf-8")
+    template_path.write_text(
+        'GROQ_API_KEY="x"\nOPENROUTER_API_KEY="z"\nGEMINI_API_KEY="y"\n',
+        encoding="utf-8",
+    )
 
     calls = {"count": 0}
 

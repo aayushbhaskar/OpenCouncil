@@ -50,7 +50,7 @@ Most LLM tools are single-model chats that fail hard when a provider fails.
 Open Council is built for real-world reliability:
 - Multi-agent debate before final answer
 - Deterministic graph workflows using LangGraph (not prompt spaghetti)
-- Automatic fallback routing: Groq -> Gemini -> local Ollama
+- Automatic fallback routing: Groq -> OpenRouter -> Gemini -> local Ollama
 - Resilient CLI UX with setup guidance and graceful interrupt handling
 
 ### Why this can beat "just a Standard Agent"
@@ -120,7 +120,7 @@ Odin also supports optional node-specific model overrides:
 - `HUGINN_MODEL` (antithesis/deconstructor worker)
 - `ODIN_MODEL` (final synthesis judge)
 
-If these are unset, Odin keeps the default provider fallback chain (Groq -> Gemini -> Ollama) per node.
+If these are unset, Odin keeps the default provider fallback chain (Groq -> OpenRouter -> Gemini -> Ollama) per node.
 
 ### One-minute wow test
 
@@ -150,12 +150,13 @@ The Path Forward:
 ### Current MVP capabilities
 
 - Odin mode LangGraph pipeline with Muninn + Huginn workers and Odin judge
-- Async LiteLLM routing with Groq -> Gemini -> Ollama fallback (`open_council.core.llm`)
+- Async LiteLLM routing with Groq -> OpenRouter -> Gemini -> Ollama fallback (`open_council.core.llm`)
 - Interactive CLI REPL with `/exit` and `/quit`
 - Session draft visibility controls: `--show-drafts` and `/show-drafts on|off`
 - In-chat mode command: `/mode` (list) and `/mode <name>` (switch; Odin wired in MVP)
 - In-chat config command: `/config` and `/config set <KEY> <VALUE>` for update flags
 - Optional per-node Odin model overrides (`MUNINN_MODEL`, `HUGINN_MODEL`, `ODIN_MODEL`)
+- OpenRouter support via `OPENROUTER_API_KEY` + `OPENROUTER_MODEL`
 - Graceful Ctrl+C handling (first press warns, second exits cleanly)
 - First-run setup wizard using `~/.open-council/.env` (temporary local `.env` fallback supported)
 - Ollama readiness checks (binary, server, model) with actionable guidance

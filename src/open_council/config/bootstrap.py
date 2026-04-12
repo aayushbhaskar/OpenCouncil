@@ -75,6 +75,14 @@ def ensure_env_file_with_wizard(
     )
     if groq_api_key is None:
         return False
+    openrouter_api_key = prompt_with_exit_controls_fn(
+        prompt="Paste your OPENROUTER_API_KEY (press Enter to skip)",
+        console=console,
+        interrupt_state=interrupt_state,
+        default="",
+    )
+    if openrouter_api_key is None:
+        return False
     gemini_api_key = prompt_with_exit_controls_fn(
         prompt="Paste your GEMINI_API_KEY (press Enter to skip)",
         console=console,
@@ -89,6 +97,11 @@ def ensure_env_file_with_wizard(
 
     template = read_env_template(template_path)
     rendered = set_env_value(template, "GROQ_API_KEY", groq_api_key) if groq_api_key else template
+    rendered = (
+        set_env_value(rendered, "OPENROUTER_API_KEY", openrouter_api_key)
+        if openrouter_api_key
+        else rendered
+    )
     rendered = set_env_value(rendered, "GEMINI_API_KEY", gemini_api_key) if gemini_api_key else rendered
     env_path.parent.mkdir(parents=True, exist_ok=True)
     env_path.write_text(rendered, encoding="utf-8")

@@ -39,7 +39,7 @@ async def test_complete_falls_back_in_expected_order(monkeypatch: pytest.MonkeyP
 
     async def _stub_acompletion(*, model: str, **_: object) -> SimpleNamespace:
         calls.append(model)
-        if model.startswith("groq/") or model.startswith("gemini/"):
+        if model.startswith("groq/") or model.startswith("openrouter/") or model.startswith("gemini/"):
             raise RuntimeError(f"failure-{model}")
         return _fake_response("ollama-ok")
 
@@ -51,10 +51,11 @@ async def test_complete_falls_back_in_expected_order(monkeypatch: pytest.MonkeyP
     assert result.ok is True
     assert result.provider == "ollama"
     assert result.content == "ollama-ok"
-    assert len(calls) == 3
+    assert len(calls) == 4
     assert calls[0].startswith("groq/")
-    assert calls[1].startswith("gemini/")
-    assert calls[2].startswith("ollama/")
+    assert calls[1].startswith("openrouter/")
+    assert calls[2].startswith("gemini/")
+    assert calls[3].startswith("ollama/")
 
 
 @pytest.mark.asyncio
@@ -70,7 +71,7 @@ async def test_complete_returns_safe_error_when_all_fail(monkeypatch: pytest.Mon
     assert result.ok is False
     assert result.error is not None
     assert "All fallback providers failed" in result.error
-    assert len(result.attempts) == 3
+    assert len(result.attempts) == 4
 
 
 @pytest.mark.asyncio
@@ -81,7 +82,7 @@ async def test_complete_prints_simple_retry_message(monkeypatch: pytest.MonkeyPa
         calls.append(model)
         if model.startswith("groq/"):
             raise RuntimeError("groq-down")
-        return _fake_response("gemini-ok")
+        return _fake_response("openrouter-ok")
 
     monkeypatch.setattr("open_council.core.llm.acompletion", _stub_acompletion)
     monkeypatch.setenv("OPEN_COUNCIL_DEBUG", "0")
@@ -91,10 +92,10 @@ async def test_complete_prints_simple_retry_message(monkeypatch: pytest.MonkeyPa
     output = capsys.readouterr().out
 
     assert result.ok is True
-    assert result.provider == "gemini"
-    assert "Provider retry: groq unavailable, trying gemini..." in output
+    assert result.provider == "openrouter"
+    assert "Provider retry: groq unavailable, trying openrouter..." in output
     assert calls[0].startswith("groq/")
-    assert calls[1].startswith("gemini/")
+    assert calls[1].startswith("openrouter/")
 
 
 @pytest.mark.asyncio

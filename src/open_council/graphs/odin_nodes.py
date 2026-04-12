@@ -676,6 +676,8 @@ def _infer_provider_from_model(model: str) -> str | None:
     normalized = model.strip().lower()
     if normalized.startswith("groq/"):
         return "groq"
+    if normalized.startswith("openrouter/"):
+        return "openrouter"
     if normalized.startswith("gemini/"):
         return "gemini"
     if normalized.startswith("ollama/"):

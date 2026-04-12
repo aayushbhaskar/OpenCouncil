@@ -93,11 +93,13 @@ def print_provider_readiness_summary(
 ) -> None:
     """Print a short readiness summary for configured providers."""
     groq_ready = has_real_api_key(os.getenv("GROQ_API_KEY", ""))
+    openrouter_ready = has_real_api_key(os.getenv("OPENROUTER_API_KEY", ""))
     gemini_ready = has_real_api_key(os.getenv("GEMINI_API_KEY", ""))
     ollama_status = get_ollama_readiness_fn()
 
     console.print("\n[bold]Provider readiness[/bold]")
     console.print(f"- Groq API key: {'ready' if groq_ready else 'missing'}")
+    console.print(f"- OpenRouter API key: {'ready' if openrouter_ready else 'missing'}")
     console.print(f"- Gemini API key: {'ready' if gemini_ready else 'missing'}")
     console.print(f"- Ollama: {ollama_status.state}")
     if ollama_status.state != "ready":
@@ -119,7 +121,7 @@ def print_ollama_status(*, console: Console, status: OllamaReadiness) -> None:
         return
     console.print(
         "[yellow]Ollama was not detected in PATH.[/yellow] "
-        "You can still use Groq/Gemini and add Ollama later."
+        "You can still use Groq/OpenRouter/Gemini and add Ollama later."
     )
 
 

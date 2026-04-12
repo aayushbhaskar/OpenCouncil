@@ -19,7 +19,7 @@ class LLMAttempt:
     Metadata for one provider attempt in a fallback sequence.
 
     Attributes:
-        provider: Logical provider name (e.g., groq, gemini, ollama).
+        provider: Logical provider name (e.g., groq, openrouter, gemini, ollama).
         model: Model identifier used for this attempt.
         error: Optional error message when the attempt failed.
     """
@@ -71,12 +71,20 @@ class LiteLLMClient:
         Environment:
             LITELLM_TIMEOUT_SECONDS
             GROQ_MODEL
+            OPENROUTER_MODEL
             GEMINI_MODEL
             OLLAMA_MODEL
         """
         self.timeout_seconds = float(os.getenv("LITELLM_TIMEOUT_SECONDS", "30"))
         self.provider_models = [
             ("groq", os.getenv("GROQ_MODEL", "groq/llama-3.3-70b-versatile")),
+            (
+                "openrouter",
+                os.getenv(
+                    "OPENROUTER_MODEL",
+                    "openrouter/google/gemma-4-26b-a4b-it:free",
+                ),
+            ),
             ("gemini", os.getenv("GEMINI_MODEL", "gemini/gemini-2.5-flash")),
             ("ollama", os.getenv("OLLAMA_MODEL", "ollama/llama3.1")),
         ]
@@ -89,15 +97,15 @@ class LiteLLMClient:
         provider_models: list[tuple[str, str]] | None = None,
     ) -> LLMResult:
         """
-        Execute chat completion with Groq -> Gemini -> Ollama fallback.
+        Execute chat completion with ordered multi-provider fallback.
 
         Args:
             messages: OpenAI-style message array for LiteLLM completion.
             temperature: Sampling temperature sent to provider.
             max_tokens: Optional max output token cap.
             provider_models: Optional provider/model chain override for this
-                call. When omitted, uses the default Groq -> Gemini -> Ollama
-                sequence.
+                call. When omitted, uses default chain:
+                Groq -> OpenRouter -> Gemini -> Ollama.
 
         Returns:
             `LLMResult` containing content on success, or a safe failure object
@@ -147,7 +155,7 @@ class LiteLLMClient:
             provider=None,
             model=None,
             attempts=attempts,
-            error="All fallback providers failed (Groq -> Gemini -> Ollama).",
+            error=f"All fallback providers failed ({_format_fallback_chain(active_provider_models)}).",
         )
 
     def _provider_kwargs(self, provider: str) -> dict[str, Any]:
@@ -166,6 +174,13 @@ class LiteLLMClient:
         if provider == "gemini":
             api_key = os.getenv("GEMINI_API_KEY", "").strip()
             return {"api_key": api_key} if api_key else {}
+        if provider == "openrouter":
+            api_key = os.getenv("OPENROUTER_API_KEY", "").strip()
+            api_base = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1").strip()
+            kwargs: dict[str, Any] = {"api_base": api_base}
+            if api_key:
+                kwargs["api_key"] = api_key
+            return kwargs
         if provider == "ollama":
             base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434").strip()
             return {"api_base": base_url}
@@ -200,3 +215,9 @@ def configure_litellm_logging(*, debug: bool) -> None:
         os.environ["LITELLM_LOG"] = "DEBUG"
     else:
         os.environ.pop("LITELLM_LOG", None)
+
+
+def _format_fallback_chain(provider_models: list[tuple[str, str]]) -> str:
+    """Render provider chain with title-cased provider labels."""
+    names = [provider.strip().title() for provider, _ in provider_models]
+    return " -> ".join(names)

@@ -18,7 +18,12 @@ def read_env_template(template_path: Path) -> str:
     """
     if template_path.exists():
         return template_path.read_text(encoding="utf-8")
-    return 'GROQ_API_KEY=""\nGEMINI_API_KEY=""\nOLLAMA_BASE_URL="http://localhost:11434"\n'
+    return (
+        'GROQ_API_KEY=""\n'
+        'OPENROUTER_API_KEY=""\n'
+        'GEMINI_API_KEY=""\n'
+        'OLLAMA_BASE_URL="http://localhost:11434"\n'
+    )
 
 
 def set_env_value(template: str, key: str, value: str) -> str:
