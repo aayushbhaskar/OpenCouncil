@@ -1,6 +1,7 @@
 """CLI entrypoint for Open Council."""
 
 import argparse
+import asyncio
 import contextlib
 import shutil
 from collections.abc import Sequence
@@ -11,6 +12,7 @@ from rich.console import Console
 from rich.prompt import Prompt
 from rich.table import Table
 
+from open_council.core.fake import fake_mode_enabled
 from open_council.core.llm import configure_litellm_logging
 from open_council.cli.constants import (
     ALL_MODES,
@@ -37,9 +39,10 @@ from open_council.graphs.artemis_graph import build_artemis_graph
 from open_council.graphs.executive_graph import build_odin_graph
 from open_council.runtime.checkpoints import (
     ensure_thread_id,
+    get_thread_mode,
     list_threads,
     open_async_sqlite_saver,
-    touch_thread,
+    restore_chat_history,
 )
 from open_council.runtime.provider_readiness import (
     OllamaReadiness,
@@ -58,7 +61,12 @@ from open_council.runtime.update_check import (
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="council", description="Open Council CLI")
-    parser.add_argument("--mode", choices=ALL_MODES, default="odin", help="Council mode to run (default: odin).")
+    parser.add_argument(
+        "--mode",
+        choices=ALL_MODES,
+        default=None,
+        help="Council mode to run (default: odin, or the mode of the --thread being resumed).",
+    )
     parser.add_argument("--debug", action="store_true", help="Enable debug mode for verbose runtime diagnostics.")
     parser.add_argument(
         "--show-drafts",
@@ -68,7 +76,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--thread",
         default=None,
-        help="Resume or create a LangGraph checkpoint thread id.",
+        help="Resume a thread from `council history` (opens in that thread's mode), or create one with this id.",
     )
     subparsers = parser.add_subparsers(dest="command")
     subparsers.add_parser("history", help="List recent checkpoint threads.")
@@ -76,7 +84,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def parse_cli_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
-    return build_parser().parse_args(argv)
+    args = build_parser().parse_args(argv)
+    args.mode_explicit = args.mode is not None
+    args.mode = args.mode or "odin"
+    return args
 
 
 def app(argv: Sequence[str] | None = None) -> None:
@@ -86,6 +97,15 @@ def app(argv: Sequence[str] | None = None) -> None:
     if getattr(args, "command", None) == "history":
         print_thread_history(console=console)
         return
+
+    resumed_mode = get_thread_mode(args.thread.strip()) if (args.thread or "").strip() else None
+    if resumed_mode is not None and resumed_mode != args.mode:
+        if args.mode_explicit:
+            console.print(
+                f"[yellow]Thread {args.thread.strip()} belongs to {resumed_mode} mode; "
+                f"opening it in {resumed_mode} instead of {args.mode}.[/yellow]"
+            )
+        args.mode = resumed_mode
 
     configure_litellm_logging(debug=args.debug)
     console.print("Open Council starting...")
@@ -101,20 +121,52 @@ def app(argv: Sequence[str] | None = None) -> None:
         return
     _load_env_file(env_path)
     print_provider_readiness_summary(console=console)
+    if fake_mode_enabled():
+        console.print("[yellow]Fake mode enabled: canned LLM/search responses, no API calls.[/yellow]")
     maybe_print_update_notice(console=console)
 
     thread_id = ensure_thread_id(args.thread)
-    touch_thread(thread_id=thread_id, mode=args.mode)
-    console.print(f"[dim]Checkpoint thread: {thread_id}[/dim]")
+    graph_config = {"configurable": {"thread_id": thread_id}}
+    initial_history: list[dict[str, str]] = []
+    if resumed_mode is not None:
+        initial_history = asyncio.run(_load_resumed_history(mode=args.mode, config=graph_config))
+        turns = sum(1 for message in initial_history if message.get("role") == "user")
+        console.print(f"[dim]Resumed thread {thread_id} ({args.mode}, {turns} previous turn(s)).[/dim]")
+        last_question = next(
+            (m["content"] for m in reversed(initial_history) if m.get("role") == "user"),
+            "",
+        )
+        if last_question:
+            console.print(f"[dim]Last question: {_truncate(last_question, 100)}[/dim]")
+    else:
+        console.print(f"[dim]Checkpoint thread: {thread_id}[/dim]")
 
     run_odin_repl(
         console=console,
         debug=args.debug,
         initial_show_drafts=args.show_drafts,
         thread_id=thread_id,
-        graph_config={"configurable": {"thread_id": thread_id}},
+        graph_config=graph_config,
         initial_mode=args.mode,
+        initial_history=initial_history,
     )
+
+
+async def _load_resumed_history(*, mode: str, config: dict) -> list[dict[str, str]]:
+    builder = build_artemis_graph if mode == "artemis" else build_odin_graph
+    try:
+        async with open_async_sqlite_saver() as checkpointer:
+            if checkpointer is None:
+                return []
+            snapshot = await builder(checkpointer=checkpointer).aget_state(config)
+    except Exception:  # noqa: BLE001
+        return []
+    return restore_chat_history(getattr(snapshot, "values", None) or {})
+
+
+def _truncate(text: str, limit: int) -> str:
+    flat = " ".join(text.split())
+    return flat if len(flat) <= limit else flat[: limit - 3] + "..."
 
 
 def run_odin_repl(
@@ -125,6 +177,7 @@ def run_odin_repl(
     thread_id: str | None = None,
     graph_config: dict | None = None,
     initial_mode: str = "odin",
+    initial_history: list[dict[str, str]] | None = None,
 ) -> None:
     _run_odin_repl_impl(
         console=console,
@@ -139,6 +192,7 @@ def run_odin_repl(
         thread_id=thread_id,
         graph_config=graph_config,
         initial_mode=initial_mode,
+        initial_history=initial_history,
     )
 
 
@@ -162,13 +216,15 @@ def print_thread_history(*, console: Console) -> None:
         console.print("No checkpoint threads found yet.")
         return
     table = Table(title="Open Council thread history")
-    table.add_column("Thread ID")
+    table.add_column("Thread ID", no_wrap=True, min_width=36)
     table.add_column("Mode")
+    table.add_column("First question")
     table.add_column("Updated")
     for item in threads:
         updated = datetime.fromtimestamp(item.updated_at).strftime("%Y-%m-%d %H:%M:%S")
-        table.add_row(item.thread_id, item.mode, updated)
+        table.add_row(item.thread_id, item.mode, _truncate(item.title, 60) or "-", updated)
     console.print(table)
+    console.print("[dim]Resume with: council --thread <id>[/dim]")
 
 
 def resolve_env_path(*, console: Console) -> Path:

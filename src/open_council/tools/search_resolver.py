@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from open_council.core.fake import fake_mode_enabled, fake_search_results
 from open_council.runtime.provider_readiness import has_real_api_key
 from open_council.tools.search_base import BaseSearchProvider, SearchResult
 from open_council.tools.search_cache import SearchCache
@@ -42,12 +43,27 @@ class CachedSearchProvider(BaseSearchProvider):
         return results
 
 
+class FakeSearchProvider(BaseSearchProvider):
+    """Deterministic offline provider used when fake mode is enabled."""
+
+    provider_name = "fake"
+
+    async def search(self, query: str, *, max_results: int = 5) -> list[SearchResult]:
+        cleaned = self._validate_query(query)
+        return [
+            SearchResult(title=title, url=url, snippet=snippet, source=self.provider_name)
+            for title, url, snippet in fake_search_results(cleaned, max_results)
+        ]
+
+
 def resolve_search_provider(*, use_cache: bool = True, cache_path: Path | None = None) -> BaseSearchProvider:
     """
     Pick Tier-2 provider when keys exist, otherwise DuckDuckGo.
 
-    Order: Tavily → Serper → DuckDuckGo.
+    Order: Tavily → Serper → DuckDuckGo. Fake mode bypasses all providers and the cache.
     """
+    if fake_mode_enabled():
+        return FakeSearchProvider()
     if has_real_api_key(os.getenv("TAVILY_API_KEY", "")):
         inner: BaseSearchProvider = TavilySearchProvider()
     elif has_real_api_key(os.getenv("SERPER_API_KEY", "")):

@@ -20,6 +20,7 @@ class ThreadSummary:
     thread_id: str
     mode: str
     updated_at: float
+    title: str = ""
 
 
 def checkpoint_db_path() -> Path:
@@ -46,30 +47,56 @@ def _metadata_connect(path: Path | None = None) -> sqlite3.Connection:
         CREATE TABLE IF NOT EXISTS open_council_threads (
             thread_id TEXT PRIMARY KEY,
             mode TEXT NOT NULL,
-            updated_at REAL NOT NULL
+            updated_at REAL NOT NULL,
+            title TEXT
         )
         """
     )
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(open_council_threads)")}
+    if "title" not in columns:
+        conn.execute("ALTER TABLE open_council_threads ADD COLUMN title TEXT")
     conn.commit()
     return conn
 
 
-def touch_thread(*, thread_id: str, mode: str, path: Path | None = None) -> None:
+def touch_thread(
+    *,
+    thread_id: str,
+    mode: str,
+    title: str | None = None,
+    path: Path | None = None,
+) -> None:
+    """Upsert a thread registry row; `title` is kept from the first turn that sets it."""
+    cleaned_title = " ".join((title or "").split())[:120] or None
     try:
         with _metadata_connect(path) as conn:
             conn.execute(
                 """
-                INSERT INTO open_council_threads (thread_id, mode, updated_at)
-                VALUES (?, ?, ?)
+                INSERT INTO open_council_threads (thread_id, mode, updated_at, title)
+                VALUES (?, ?, ?, ?)
                 ON CONFLICT(thread_id) DO UPDATE SET
                     mode=excluded.mode,
-                    updated_at=excluded.updated_at
+                    updated_at=excluded.updated_at,
+                    title=COALESCE(open_council_threads.title, excluded.title)
                 """,
-                (thread_id, mode, time.time()),
+                (thread_id, mode, time.time(), cleaned_title),
             )
             conn.commit()
     except (OSError, sqlite3.Error):
         return
+
+
+def get_thread_mode(thread_id: str, *, path: Path | None = None) -> str | None:
+    """Return the mode a thread was created in, or None when the thread is unknown."""
+    try:
+        with _metadata_connect(path) as conn:
+            row = conn.execute(
+                "SELECT mode FROM open_council_threads WHERE thread_id = ?",
+                (thread_id,),
+            ).fetchone()
+    except (OSError, sqlite3.Error):
+        return None
+    return str(row[0]) if row else None
 
 
 def list_threads(*, path: Path | None = None, limit: int = 50) -> list[ThreadSummary]:
@@ -77,7 +104,7 @@ def list_threads(*, path: Path | None = None, limit: int = 50) -> list[ThreadSum
         with _metadata_connect(path) as conn:
             rows = conn.execute(
                 """
-                SELECT thread_id, mode, updated_at
+                SELECT thread_id, mode, updated_at, title
                 FROM open_council_threads
                 ORDER BY updated_at DESC
                 LIMIT ?
@@ -87,9 +114,33 @@ def list_threads(*, path: Path | None = None, limit: int = 50) -> list[ThreadSum
     except (OSError, sqlite3.Error):
         return []
     return [
-        ThreadSummary(thread_id=str(row[0]), mode=str(row[1]), updated_at=float(row[2]))
+        ThreadSummary(
+            thread_id=str(row[0]),
+            mode=str(row[1]),
+            updated_at=float(row[2]),
+            title=str(row[3] or ""),
+        )
         for row in rows
     ]
+
+
+def restore_chat_history(values: dict[str, Any]) -> list[dict[str, str]]:
+    """
+    Rebuild the conversation from a thread's latest checkpoint values.
+
+    The REPL appends the final answer after the graph finishes, so a completed turn's
+    checkpoint ends with the user's question and holds the answer in `final_synthesis`.
+    A trailing question without an answer (cancelled turn) is dropped.
+    """
+    history = [dict(message) for message in values.get("chat_history", []) or []]
+    if not history or history[-1].get("role") != "user":
+        return history
+    answer = str(values.get("final_synthesis", "") or "").strip()
+    if answer:
+        history.append({"role": "assistant", "content": answer})
+    else:
+        history.pop()
+    return history
 
 
 @asynccontextmanager

@@ -10,6 +10,7 @@ from typing import Any
 import litellm
 from litellm import acompletion
 
+from open_council.core.fake import fake_completion, fake_mode_enabled
 from open_council.core.throttle import network_throttle
 
 
@@ -19,7 +20,7 @@ class LLMAttempt:
     Metadata for one provider attempt in a fallback sequence.
 
     Attributes:
-        provider: Logical provider name (e.g., groq, openrouter, gemini, ollama).
+        provider: Logical provider name (e.g., groq, openrouter, ollama).
         model: Model identifier used for this attempt.
         error: Optional error message when the attempt failed.
     """
@@ -72,7 +73,6 @@ class LiteLLMClient:
             LITELLM_TIMEOUT_SECONDS
             GROQ_MODEL
             OPENROUTER_MODEL
-            GEMINI_MODEL
             OLLAMA_MODEL
         """
         self.timeout_seconds = float(os.getenv("LITELLM_TIMEOUT_SECONDS", "30"))
@@ -82,10 +82,9 @@ class LiteLLMClient:
                 "openrouter",
                 os.getenv(
                     "OPENROUTER_MODEL",
-                    "openrouter/google/gemma-4-26b-a4b-it:free",
+                    "openrouter/minimax/minimax-m3.1-flash:free",
                 ),
             ),
-            ("gemini", os.getenv("GEMINI_MODEL", "gemini/gemini-2.5-flash")),
             ("ollama", os.getenv("OLLAMA_MODEL", "ollama/llama3.1")),
         ]
     async def complete(
@@ -105,13 +104,21 @@ class LiteLLMClient:
             max_tokens: Optional max output token cap.
             provider_models: Optional provider/model chain override for this
                 call. When omitted, uses default chain:
-                Groq -> OpenRouter -> Gemini -> Ollama.
+                Groq -> OpenRouter -> Ollama.
 
         Returns:
             `LLMResult` containing content on success, or a safe failure object
             when all fallback providers fail.
         """
         attempts: list[LLMAttempt] = []
+        if fake_mode_enabled():
+            return LLMResult(
+                ok=True,
+                content=fake_completion(messages),
+                provider="fake",
+                model="fake",
+                attempts=[LLMAttempt(provider="fake", model="fake")],
+            )
 
         active_provider_models = provider_models or self.provider_models
 
@@ -171,15 +178,17 @@ class LiteLLMClient:
         if provider == "groq":
             api_key = os.getenv("GROQ_API_KEY", "").strip()
             return {"api_key": api_key} if api_key else {}
-        if provider == "gemini":
-            api_key = os.getenv("GEMINI_API_KEY", "").strip()
-            return {"api_key": api_key} if api_key else {}
         if provider == "openrouter":
             api_key = os.getenv("OPENROUTER_API_KEY", "").strip()
             api_base = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1").strip()
             kwargs: dict[str, Any] = {"api_base": api_base}
             if api_key:
                 kwargs["api_key"] = api_key
+            # Free reasoning models can spend the whole max_tokens budget thinking and
+            # return empty content; "low" keeps short node budgets usable.
+            effort = os.getenv("OPENROUTER_REASONING_EFFORT", "low").strip().lower()
+            if effort:
+                kwargs["extra_body"] = {"reasoning": {"effort": effort}}
             return kwargs
         if provider == "ollama":
             base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434").strip()

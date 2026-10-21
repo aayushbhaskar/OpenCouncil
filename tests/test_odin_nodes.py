@@ -110,8 +110,8 @@ async def test_judge_node_produces_final_synthesis(
         return LLMResult(
             ok=True,
             content="Final Odin verdict.",
-            provider="gemini",
-            model="gemini/gemini-2.5-flash",
+            provider="groq",
+            model="groq/llama-3.3-70b-versatile",
             attempts=[],
         )
 
@@ -173,7 +173,7 @@ async def test_worker_and_judge_use_node_specific_models(monkeypatch: pytest.Mon
             attempts=[],
         )
 
-    monkeypatch.setenv("MUNINN_MODEL", "gemini/custom-muninn")
+    monkeypatch.setenv("MUNINN_MODEL", "openrouter/custom-muninn")
     monkeypatch.setenv("HUGINN_MODEL", "ollama/custom-huginn")
     monkeypatch.setenv("ODIN_MODEL", "groq/custom-odin")
     monkeypatch.setattr("open_council.core.llm.LiteLLMClient.complete", _stub_complete)
@@ -187,7 +187,7 @@ async def test_worker_and_judge_use_node_specific_models(monkeypatch: pytest.Mon
     ]
     await judge_node(state)
 
-    assert captured_provider_models[0][0] == ("gemini", "gemini/custom-muninn")
+    assert captured_provider_models[0][0] == ("openrouter", "openrouter/custom-muninn")
     assert captured_provider_models[1][0] == ("ollama", "ollama/custom-huginn")
     assert captured_provider_models[2][0] == ("groq", "groq/custom-odin")
 

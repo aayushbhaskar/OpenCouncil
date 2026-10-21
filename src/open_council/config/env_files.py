@@ -21,7 +21,6 @@ def read_env_template(template_path: Path) -> str:
     return (
         'GROQ_API_KEY=""\n'
         'OPENROUTER_API_KEY=""\n'
-        'GEMINI_API_KEY=""\n'
         'OLLAMA_BASE_URL="http://localhost:11434"\n'
     )
 

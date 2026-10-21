@@ -11,7 +11,7 @@ from rich.markdown import Markdown
 
 from open_council.cli.constants import ALL_MODES, CONFIGURABLE_FLAGS, TEMPLATE_ENV_PATH, WIRED_MODES
 from open_council.config.env_files import normalize_flag_value, read_env_template, set_env_value
-from open_council.runtime.checkpoints import touch_thread
+from open_council.runtime.checkpoints import new_thread_id, touch_thread
 from open_council.state.artemis import ArtemisState, initialize_artemis_state
 from open_council.state.executive import ChatMessage, OdinState, initialize_odin_state
 
@@ -30,18 +30,26 @@ def run_odin_repl(
     invoke_artemis_graph_with_ui_fn=None,
     artemis_graph_builder=None,
     initial_mode: str = "odin",
+    initial_history: list[ChatMessage] | None = None,
 ) -> None:
     """
     Run interactive chat REPL for wired modes (Odin / Artemis).
 
     Kept name `run_odin_repl` for main.py compatibility; supports Artemis when
-    builders/invokers are provided.
+    builders/invokers are provided. Each thread belongs to one mode: `/mode` starts a
+    new thread, and `initial_history` seeds a resumed thread's conversation.
     """
     current_mode = initial_mode if initial_mode in WIRED_MODES else "odin"
     odin_graph = graph_builder()
     artemis_graph = artemis_graph_builder() if artemis_graph_builder is not None else None
     odin_state: OdinState | None = None
     artemis_state: ArtemisState | None = None
+    if initial_history:
+        # Placeholder query; prepare_*_state_for_turn replaces it on the next turn.
+        if current_mode == "artemis":
+            artemis_state = {**initialize_artemis_state("(resumed)"), "chat_history": list(initial_history)}
+        else:
+            odin_state = {**initialize_odin_state("(resumed)"), "chat_history": list(initial_history)}
     show_drafts = initial_show_drafts
     interrupt_state = {"armed": False}
     active_thread = thread_id
@@ -86,10 +94,16 @@ def run_odin_repl(
             )
             if next_mode != current_mode:
                 current_mode = next_mode
-                # Fresh turn buffers when switching personas.
                 odin_state = None
                 artemis_state = None
-                console.print(f"[dim]Switched active session to {current_mode}.[/dim]")
+                if active_thread:
+                    active_thread = new_thread_id()
+                    config = {"configurable": {"thread_id": active_thread}}
+                    console.print(
+                        f"[dim]Started a new {current_mode} thread: {active_thread}[/dim]"
+                    )
+                else:
+                    console.print(f"[dim]Switched active session to {current_mode}.[/dim]")
             continue
         if lowered.startswith("/config"):
             handle_config_command(
@@ -135,7 +149,7 @@ def run_odin_repl(
                     final_synthesis=result.get("final_synthesis", "No synthesis produced."),
                 )
                 if active_thread:
-                    touch_thread(thread_id=active_thread, mode="artemis")
+                    touch_thread(thread_id=active_thread, mode="artemis", title=user_input)
                 if show_drafts:
                     print_artemis_drafts(console=console, state=artemis_state)
                 else:
@@ -163,7 +177,7 @@ def run_odin_repl(
                     final_synthesis=result.get("final_synthesis", "No synthesis produced."),
                 )
                 if active_thread:
-                    touch_thread(thread_id=active_thread, mode="odin")
+                    touch_thread(thread_id=active_thread, mode="odin", title=user_input)
                 if show_drafts:
                     print_worker_drafts(console=console, state=odin_state)
                 else:
@@ -359,6 +373,7 @@ def prepare_state_for_turn(*, previous_state: OdinState | None, user_input: str,
             **previous_state,
             "query": user_input,
             "parallel_drafts": [],
+            "final_synthesis": "",
         }
     state["show_drafts"] = show_drafts
     return append_chat_message(state=state, role="user", content=user_input)

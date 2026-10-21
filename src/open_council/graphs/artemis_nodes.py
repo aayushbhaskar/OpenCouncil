@@ -227,7 +227,9 @@ async def artemis_specialist_draft_node(state: ArtemisState) -> dict[str, Any]:
 
 async def artemis_critic_node(state: ArtemisState) -> dict[str, Any]:
     evidence = _evidence_block(state)
+    history = _format_history(state.get("chat_history", []))
     user = (
+        f"Conversation history:\n{history}\n\n"
         f"User query:\n{state['query']}\n\n"
         f"Plan:\n{state.get('plan', '')}\n\n"
         f"Specialist draft:\n{state.get('specialist_draft', '')}\n\n"
@@ -261,7 +263,9 @@ async def artemis_critic_node(state: ArtemisState) -> dict[str, Any]:
 
 
 async def artemis_synthesize_node(state: ArtemisState) -> dict[str, str]:
+    history = _format_history(state.get("chat_history", []))
     user = (
+        f"Conversation history:\n{history}\n\n"
         f"User query:\n{state['query']}\n\n"
         f"Plan:\n{state.get('plan', '')}\n\n"
         f"Specialist draft:\n{state.get('specialist_draft', '')}\n\n"
@@ -338,8 +342,6 @@ def _infer_provider(model: str) -> str | None:
         return "groq"
     if normalized.startswith("openrouter/"):
         return "openrouter"
-    if normalized.startswith("gemini/"):
-        return "gemini"
     if normalized.startswith("ollama/"):
         return "ollama"
     return None

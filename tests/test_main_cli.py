@@ -27,8 +27,9 @@ def _stub_checkpointing(monkeypatch):
     from open_council import main
 
     monkeypatch.setattr(main, "open_async_sqlite_saver", _null_saver)
-    monkeypatch.setattr(main, "touch_thread", lambda **_: None)
+    monkeypatch.setattr(main, "get_thread_mode", lambda thread_id: None)
     monkeypatch.setattr(main, "ensure_thread_id", lambda raw: (raw or "test-thread"))
+    monkeypatch.setenv("OPEN_COUNCIL_FAKE_LLM", "0")
     monkeypatch.setattr(main, "build_artemis_graph", lambda checkpointer=None: _DummyGraph())
     monkeypatch.setattr("open_council.cli.repl.touch_thread", lambda **_: None)
     monkeypatch.setattr(
@@ -601,12 +602,11 @@ def test_first_run_wizard_creates_env_file(tmp_path, monkeypatch, capsys) -> Non
         (
             'GROQ_API_KEY="your_groq_api_key_here"\n'
             'OPENROUTER_API_KEY="your_openrouter_api_key_here"\n'
-            'GEMINI_API_KEY="your_gemini_api_key_here"\n'
         ),
         encoding="utf-8",
     )
 
-    prompt_values = iter(["groq-key-123", "or-key-789", "gem-key-456"])
+    prompt_values = iter(["groq-key-123", "or-key-789"])
 
     def _stub_prompt(_: str, default: str = "") -> str:
         _ = default
@@ -634,7 +634,7 @@ def test_first_run_wizard_creates_env_file(tmp_path, monkeypatch, capsys) -> Non
     assert "Ollama binary detected" in output
     assert 'GROQ_API_KEY="groq-key-123"' in content
     assert 'OPENROUTER_API_KEY="or-key-789"' in content
-    assert 'GEMINI_API_KEY="gem-key-456"' in content
+    assert "GEMINI" not in content
 
 
 def test_first_run_wizard_skips_when_env_exists(tmp_path, monkeypatch) -> None:
@@ -664,7 +664,7 @@ def test_first_run_wizard_allows_exit_command(tmp_path, monkeypatch, capsys) -> 
     env_path = tmp_path / ".env"
     template_path = tmp_path / ".env.example"
     template_path.write_text(
-        'GROQ_API_KEY="x"\nOPENROUTER_API_KEY="z"\nGEMINI_API_KEY="y"\n',
+        'GROQ_API_KEY="x"\nOPENROUTER_API_KEY="z"\n',
         encoding="utf-8",
     )
 
@@ -689,7 +689,7 @@ def test_first_run_wizard_keyboard_interrupt_twice_exits(tmp_path, monkeypatch, 
     env_path = tmp_path / ".env"
     template_path = tmp_path / ".env.example"
     template_path.write_text(
-        'GROQ_API_KEY="x"\nOPENROUTER_API_KEY="z"\nGEMINI_API_KEY="y"\n',
+        'GROQ_API_KEY="x"\nOPENROUTER_API_KEY="z"\n',
         encoding="utf-8",
     )
 

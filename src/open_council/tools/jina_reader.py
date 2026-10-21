@@ -8,6 +8,7 @@ import re
 
 import aiohttp
 
+from open_council.core.fake import fake_mode_enabled, fake_page_markdown
 from open_council.tools.search_cache import SearchCache
 
 
@@ -51,6 +52,8 @@ class JinaReader:
             raw HTML, or a safe `[reader_error]`/`[reader_warning]` message.
         """
         target_url = self._validate_url(url)
+        if fake_mode_enabled():
+            return fake_page_markdown(target_url)
         if self.use_cache and self.cache is not None:
             cached = self.cache.get_page_content(target_url)
             if cached is not None:

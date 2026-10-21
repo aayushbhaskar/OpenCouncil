@@ -50,7 +50,7 @@ Most LLM tools are single-model chats that fail hard when a provider fails.
 Open Council is built for real-world reliability:
 - Multi-agent debate before final answer
 - Deterministic graph workflows using LangGraph (not prompt spaghetti)
-- Automatic fallback routing: Groq -> OpenRouter -> Gemini -> local Ollama
+- Automatic fallback routing: Groq -> OpenRouter -> local Ollama
 - Resilient CLI UX with setup guidance and graceful interrupt handling
 
 ### Why this can beat "just a Standard Agent"
@@ -120,7 +120,7 @@ Odin also supports optional node-specific model overrides:
 - `HUGINN_MODEL` (antithesis/deconstructor worker)
 - `ODIN_MODEL` (final synthesis judge)
 
-If these are unset, Odin keeps the default provider fallback chain (Groq -> OpenRouter -> Gemini -> Ollama) per node.
+If these are unset, Odin keeps the default provider fallback chain (Groq -> OpenRouter -> Ollama) per node.
 
 ### One-minute wow test
 
@@ -151,15 +151,16 @@ The Path Forward:
 
 - Odin mode LangGraph pipeline with Muninn + Huginn workers and Odin judge
 - Artemis mode cyclic research graph (Planner → search/extract → Specialist → Critic → synthesize)
-- Async LiteLLM routing with Groq -> OpenRouter -> Gemini -> Ollama fallback (`open_council.core.llm`)
+- Async LiteLLM routing with Groq -> OpenRouter -> Ollama fallback (`open_council.core.llm`)
 - Interactive CLI REPL with `/exit` and `/quit`
 - Session draft visibility controls: `--show-drafts` and `/show-drafts on|off`
 - In-chat mode command: `/mode` (list) and `/mode <name>` (switch; Odin + Artemis wired)
 - In-chat config command: `/config` and `/config set <KEY> <VALUE>` for update flags
 - Optional per-node Odin model overrides (`MUNINN_MODEL`, `HUGINN_MODEL`, `ODIN_MODEL`) and `ARTEMIS_MODEL`
-- OpenRouter support via `OPENROUTER_API_KEY` + `OPENROUTER_MODEL`
+- OpenRouter support via `OPENROUTER_API_KEY` + `OPENROUTER_MODEL` (default `minimax/minimax-m3.1-flash:free`, low reasoning effort via `OPENROUTER_REASONING_EFFORT`)
 - Tier-2 search auto-swap: Tavily → Serper → DuckDuckGo (plus SQLite search/Jina cache)
-- SQLite checkpointing with `--thread` resume and `council history`
+- SQLite checkpointing with thread resume: `council history` lists threads with their first question, `council --thread <id>` reopens one in its own mode with the earlier conversation restored, and `/mode` starts a new thread
+- Offline fake mode (`OPEN_COUNCIL_FAKE_LLM=1`) for testing flows with no API calls
 - Graceful Ctrl+C handling (first press warns, second exits cleanly)
 - First-run setup wizard using `~/.open-council/.env` (temporary local `.env` fallback supported)
 - Ollama readiness checks (binary, server, model) with actionable guidance
@@ -192,6 +193,11 @@ pip install -e ".[dev]"
 pytest -q tests/test_llm_client.py
 council --mode odin
 ```
+
+Free-tier quotas run out fast while developing (one Artemis turn can make up to 13 LLM calls). Two ways to test without burning them:
+
+- `OPEN_COUNCIL_FAKE_LLM=1 council --mode artemis` returns canned LLM, search, and page responses in each node's expected format, so flows, UI, checkpoints, and resume can be exercised with zero API calls. The fake critic rejects the first draft once, so the revision loop runs too.
+- For real but unlimited local answers, pull a small Ollama model (`ollama pull llama3.2:3b`) and set `OLLAMA_MODEL=ollama/llama3.2:3b`.
 
 ## 🏗️ Architecture and resilience
 

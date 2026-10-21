@@ -39,7 +39,7 @@ async def test_complete_falls_back_in_expected_order(monkeypatch: pytest.MonkeyP
 
     async def _stub_acompletion(*, model: str, **_: object) -> SimpleNamespace:
         calls.append(model)
-        if model.startswith("groq/") or model.startswith("openrouter/") or model.startswith("gemini/"):
+        if model.startswith("groq/") or model.startswith("openrouter/"):
             raise RuntimeError(f"failure-{model}")
         return _fake_response("ollama-ok")
 
@@ -51,11 +51,10 @@ async def test_complete_falls_back_in_expected_order(monkeypatch: pytest.MonkeyP
     assert result.ok is True
     assert result.provider == "ollama"
     assert result.content == "ollama-ok"
-    assert len(calls) == 4
+    assert len(calls) == 3
     assert calls[0].startswith("groq/")
     assert calls[1].startswith("openrouter/")
-    assert calls[2].startswith("gemini/")
-    assert calls[3].startswith("ollama/")
+    assert calls[2].startswith("ollama/")
 
 
 @pytest.mark.asyncio
@@ -71,7 +70,7 @@ async def test_complete_returns_safe_error_when_all_fail(monkeypatch: pytest.Mon
     assert result.ok is False
     assert result.error is not None
     assert "All fallback providers failed" in result.error
-    assert len(result.attempts) == 4
+    assert len(result.attempts) == 3
 
 
 @pytest.mark.asyncio
@@ -104,7 +103,7 @@ async def test_complete_honors_provider_model_override_chain(monkeypatch: pytest
 
     async def _stub_acompletion(*, model: str, **_: object) -> SimpleNamespace:
         calls.append(model)
-        if model == "gemini/custom":
+        if model == "openrouter/custom":
             raise RuntimeError("custom-down")
         return _fake_response("ok")
 
@@ -114,13 +113,59 @@ async def test_complete_honors_provider_model_override_chain(monkeypatch: pytest
     result = await client.complete(
         [{"role": "user", "content": "hello"}],
         provider_models=[
-            ("gemini", "gemini/custom"),
+            ("openrouter", "openrouter/custom"),
             ("groq", "groq/fallback"),
         ],
     )
 
     assert result.ok is True
-    assert calls == ["gemini/custom", "groq/fallback"]
+    assert calls == ["openrouter/custom", "groq/fallback"]
+
+
+@pytest.mark.asyncio
+async def test_openrouter_requests_low_reasoning_effort_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    async def _stub_acompletion(*, model: str, **kwargs: object) -> SimpleNamespace:
+        captured.update(kwargs)
+        return _fake_response("ok")
+
+    monkeypatch.setattr("open_council.core.llm.acompletion", _stub_acompletion)
+    monkeypatch.delenv("OPENROUTER_REASONING_EFFORT", raising=False)
+
+    client = LiteLLMClient()
+    await client.complete(
+        [{"role": "user", "content": "hello"}],
+        provider_models=[("openrouter", "openrouter/minimax/minimax-m3.1-flash:free")],
+    )
+    assert captured["extra_body"] == {"reasoning": {"effort": "low"}}
+
+    captured.clear()
+    monkeypatch.setenv("OPENROUTER_REASONING_EFFORT", "")
+    await client.complete(
+        [{"role": "user", "content": "hello"}],
+        provider_models=[("openrouter", "openrouter/minimax/minimax-m3.1-flash:free")],
+    )
+    assert "extra_body" not in captured
+
+
+@pytest.mark.asyncio
+async def test_fake_mode_skips_providers(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def _fail(**_: object) -> SimpleNamespace:
+        raise AssertionError("fake mode must not call providers")
+
+    monkeypatch.setattr("open_council.core.llm.acompletion", _fail)
+    monkeypatch.setenv("OPEN_COUNCIL_FAKE_LLM", "1")
+
+    result = await LiteLLMClient().complete(
+        [
+            {"role": "system", "content": "You are the Artemis Critic."},
+            {"role": "user", "content": "Specialist draft:\n[fake first pass] draft"},
+        ]
+    )
+    assert result.ok is True
+    assert result.provider == "fake"
+    assert result.content.startswith("VERDICT: REJECT")
 
 
 @pytest.mark.asyncio

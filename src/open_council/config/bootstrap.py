@@ -83,15 +83,6 @@ def ensure_env_file_with_wizard(
     )
     if openrouter_api_key is None:
         return False
-    gemini_api_key = prompt_with_exit_controls_fn(
-        prompt="Paste your GEMINI_API_KEY (press Enter to skip)",
-        console=console,
-        interrupt_state=interrupt_state,
-        default="",
-    )
-    if gemini_api_key is None:
-        return False
-
     ollama_status = get_ollama_readiness_fn()
     print_ollama_status_fn(console=console, status=ollama_status)
 
@@ -102,7 +93,6 @@ def ensure_env_file_with_wizard(
         if openrouter_api_key
         else rendered
     )
-    rendered = set_env_value(rendered, "GEMINI_API_KEY", gemini_api_key) if gemini_api_key else rendered
     env_path.parent.mkdir(parents=True, exist_ok=True)
     env_path.write_text(rendered, encoding="utf-8")
     console.print(f"[green]Created {env_path}[/green]. Update it anytime as needed.")
