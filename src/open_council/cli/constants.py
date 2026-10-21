@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 ALL_MODES = ("odin", "artemis", "leviathan")
-WIRED_MODES = frozenset({"odin"})
+WIRED_MODES = frozenset({"odin", "artemis"})
 UPDATE_COMMAND = "curl -fsSL https://aayushbhaskar.github.io/OpenCouncil/install.sh | bash"
 CONFIGURABLE_FLAGS = (
     "OPEN_COUNCIL_UPDATE_CHECK",

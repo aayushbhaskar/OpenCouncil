@@ -10,7 +10,10 @@ from open_council.state.executive import initialize_odin_state
 async def test_build_odin_graph_executes_workers_then_judge(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    async def _muninn_node(state: dict[str, object]) -> dict[str, list[dict[str, str]]]:
+    async def _passthrough(state: dict[str, object]) -> dict[str, object]:
+        return {}
+
+    async def _muninn_draft(state: dict[str, object]) -> dict[str, list[dict[str, str]]]:
         _ = state
         return {
             "parallel_drafts": [
@@ -18,7 +21,7 @@ async def test_build_odin_graph_executes_workers_then_judge(
             ]
         }
 
-    async def _huginn_node(state: dict[str, object]) -> dict[str, list[dict[str, str]]]:
+    async def _huginn_draft(state: dict[str, object]) -> dict[str, list[dict[str, str]]]:
         _ = state
         return {
             "parallel_drafts": [
@@ -32,8 +35,21 @@ async def test_build_odin_graph_executes_workers_then_judge(
         assert len(drafts) == 2
         return {"final_synthesis": "final verdict"}
 
-    monkeypatch.setattr(executive_graph, "pragmatic_worker_node", _muninn_node)
-    monkeypatch.setattr(executive_graph, "skeptical_worker_node", _huginn_node)
+    for name in [
+        "muninn_reason_gate_node",
+        "muninn_query_gen_node",
+        "muninn_search_node",
+        "muninn_extract_node",
+        "muninn_reason_refine_node",
+        "huginn_reason_gate_node",
+        "huginn_query_gen_node",
+        "huginn_search_node",
+        "huginn_extract_node",
+        "huginn_reason_refine_node",
+    ]:
+        monkeypatch.setattr(executive_graph, name, _passthrough)
+    monkeypatch.setattr(executive_graph, "muninn_draft_node", _muninn_draft)
+    monkeypatch.setattr(executive_graph, "huginn_draft_node", _huginn_draft)
     monkeypatch.setattr(executive_graph, "judge_node", _judge_node)
 
     graph = executive_graph.build_odin_graph()
@@ -48,7 +64,10 @@ async def test_build_odin_graph_executes_workers_then_judge(
 async def test_compile_executive_graph_alias_builds_runnable_graph(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    async def _worker(state: dict[str, object]) -> dict[str, list[dict[str, str]]]:
+    async def _passthrough(state: dict[str, object]) -> dict[str, object]:
+        return {}
+
+    async def _draft(state: dict[str, object]) -> dict[str, list[dict[str, str]]]:
         _ = state
         return {"parallel_drafts": [{"worker_id": "x", "model": "m", "draft": "d"}]}
 
@@ -56,8 +75,21 @@ async def test_compile_executive_graph_alias_builds_runnable_graph(
         _ = state
         return {"final_synthesis": "ok"}
 
-    monkeypatch.setattr(executive_graph, "pragmatic_worker_node", _worker)
-    monkeypatch.setattr(executive_graph, "skeptical_worker_node", _worker)
+    for name in [
+        "muninn_reason_gate_node",
+        "muninn_query_gen_node",
+        "muninn_search_node",
+        "muninn_extract_node",
+        "muninn_reason_refine_node",
+        "huginn_reason_gate_node",
+        "huginn_query_gen_node",
+        "huginn_search_node",
+        "huginn_extract_node",
+        "huginn_reason_refine_node",
+    ]:
+        monkeypatch.setattr(executive_graph, name, _passthrough)
+    monkeypatch.setattr(executive_graph, "muninn_draft_node", _draft)
+    monkeypatch.setattr(executive_graph, "huginn_draft_node", _draft)
     monkeypatch.setattr(executive_graph, "judge_node", _judge)
 
     graph = executive_graph.compile_executive_graph()

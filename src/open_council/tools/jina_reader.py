@@ -8,6 +8,8 @@ import re
 
 import aiohttp
 
+from open_council.tools.search_cache import SearchCache
+
 
 class JinaReader:
     """
@@ -17,15 +19,25 @@ class JinaReader:
     it falls back to direct HTML fetch and lightweight text extraction.
     """
 
-    def __init__(self, timeout_seconds: float = 10.0) -> None:
+    def __init__(
+        self,
+        timeout_seconds: float = 10.0,
+        *,
+        cache: SearchCache | None = None,
+        use_cache: bool = True,
+    ) -> None:
         """
         Configure reader timeout budget.
 
         Args:
             timeout_seconds: Hard request timeout used for Jina and fallback
                 HTML fetch calls.
+            cache: Optional shared SQLite content cache.
+            use_cache: When True, read/write page content via cache.
         """
         self.timeout_seconds = timeout_seconds
+        self.use_cache = use_cache
+        self.cache = cache if cache is not None else (SearchCache() if use_cache else None)
 
     async def fetch_markdown(self, url: str) -> str:
         """
@@ -39,16 +51,30 @@ class JinaReader:
             raw HTML, or a safe `[reader_error]`/`[reader_warning]` message.
         """
         target_url = self._validate_url(url)
+        if self.use_cache and self.cache is not None:
+            cached = self.cache.get_page_content(target_url)
+            if cached is not None:
+                return cached
+
         jina_url = self._build_jina_url(target_url)
 
         try:
             markdown = await self._fetch_text(jina_url, timeout=self.timeout_seconds)
             if markdown.strip():
+                self._store_cache(target_url, markdown)
                 return markdown
         except (aiohttp.ClientError, asyncio.TimeoutError) as exc:
-            return await self._fallback_from_html(target_url, str(exc))
+            content = await self._fallback_from_html(target_url, str(exc))
+            self._store_cache(target_url, content)
+            return content
 
-        return await self._fallback_from_html(target_url, "Jina returned empty content.")
+        content = await self._fallback_from_html(target_url, "Jina returned empty content.")
+        self._store_cache(target_url, content)
+        return content
+
+    def _store_cache(self, url: str, content: str) -> None:
+        if self.use_cache and self.cache is not None and content and not content.startswith("[reader_error]"):
+            self.cache.put_page_content(url, content)
 
     async def _fallback_from_html(self, url: str, reason: str) -> str:
         """

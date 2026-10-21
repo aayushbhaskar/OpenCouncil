@@ -76,7 +76,7 @@ async def test_ddg_provider_returns_safe_error_on_timeout(
 
 @pytest.mark.asyncio
 async def test_jina_reader_returns_jina_markdown(monkeypatch: pytest.MonkeyPatch) -> None:
-    reader = JinaReader(timeout_seconds=10.0)
+    reader = JinaReader(timeout_seconds=10.0, use_cache=False)
 
     async def _stub_fetch_text(url: str, *, timeout: float) -> str:
         assert timeout == 10.0
@@ -94,7 +94,7 @@ async def test_jina_reader_returns_jina_markdown(monkeypatch: pytest.MonkeyPatch
 async def test_jina_reader_falls_back_to_html_extraction(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    reader = JinaReader(timeout_seconds=10.0)
+    reader = JinaReader(timeout_seconds=10.0, use_cache=False)
 
     async def _stub_fetch_text(url: str, *, timeout: float) -> str:
         _ = timeout
@@ -113,7 +113,7 @@ async def test_jina_reader_falls_back_to_html_extraction(
 async def test_jina_reader_returns_error_text_when_both_paths_fail(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    reader = JinaReader(timeout_seconds=10.0)
+    reader = JinaReader(timeout_seconds=10.0, use_cache=False)
 
     async def _stub_fetch_text(_: str, *, timeout: float) -> str:
         _ = timeout

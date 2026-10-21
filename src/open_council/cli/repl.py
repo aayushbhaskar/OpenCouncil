@@ -1,16 +1,18 @@
-"""Odin REPL loop and slash-command handlers."""
+"""Council REPL loop and slash-command handlers."""
 
 from __future__ import annotations
 
 import asyncio
 import os
-from pathlib import Path
+from typing import Any
 
 from rich.console import Console
 from rich.markdown import Markdown
 
 from open_council.cli.constants import ALL_MODES, CONFIGURABLE_FLAGS, TEMPLATE_ENV_PATH, WIRED_MODES
 from open_council.config.env_files import normalize_flag_value, read_env_template, set_env_value
+from open_council.runtime.checkpoints import touch_thread
+from open_council.state.artemis import ArtemisState, initialize_artemis_state
 from open_council.state.executive import ChatMessage, OdinState, initialize_odin_state
 
 
@@ -23,34 +25,35 @@ def run_odin_repl(
     prompt_with_exit_controls_fn,
     invoke_odin_graph_with_ui_fn,
     resolve_env_path_fn,
+    thread_id: str | None = None,
+    graph_config: dict[str, Any] | None = None,
+    invoke_artemis_graph_with_ui_fn=None,
+    artemis_graph_builder=None,
+    initial_mode: str = "odin",
 ) -> None:
     """
-    Run the interactive Odin chat REPL loop.
+    Run interactive chat REPL for wired modes (Odin / Artemis).
 
-    Args:
-        console: Rich console used for all terminal output.
-        debug: If True, re-raise graph execution exceptions after printing.
-        initial_show_drafts: Initial worker draft visibility toggle.
-        graph_builder: Graph constructor callback.
-        prompt_with_exit_controls_fn: Input prompt callback.
-        invoke_odin_graph_with_ui_fn: Graph invoke callback with UI streaming.
-        resolve_env_path_fn: Env path resolver callback used by `/config`.
-
-    Behavior:
-        - Reads user turns via Rich prompt.
-        - Enforces slash-based exit commands.
-        - Executes one graph turn per user query.
-        - Persists and reuses state across turns.
+    Kept name `run_odin_repl` for main.py compatibility; supports Artemis when
+    builders/invokers are provided.
     """
-    graph = graph_builder()
-    state: OdinState | None = None
-    current_mode = "odin"
+    current_mode = initial_mode if initial_mode in WIRED_MODES else "odin"
+    odin_graph = graph_builder()
+    artemis_graph = artemis_graph_builder() if artemis_graph_builder is not None else None
+    odin_state: OdinState | None = None
+    artemis_state: ArtemisState | None = None
     show_drafts = initial_show_drafts
     interrupt_state = {"armed": False}
+    active_thread = thread_id
+    config = graph_config
+
+    mode_label = current_mode.title()
     console.print(
-        "Odin ready. Type your query, '/mode', '/config', '/show-drafts', "
+        f"{mode_label} ready. Type your query, '/mode', '/config', '/show-drafts', "
         "or '/exit' / '/quit' to stop."
     )
+    if active_thread:
+        console.print(f"[dim]Thread: {active_thread}[/dim]")
     console.print()
 
     while True:
@@ -76,11 +79,17 @@ def run_odin_repl(
             console.print("\nTo quit, use /quit.")
             continue
         if lowered.startswith("/mode"):
-            current_mode = handle_mode_command(
+            next_mode = handle_mode_command(
                 command=user_input,
                 current_mode=current_mode,
                 console=console,
             )
+            if next_mode != current_mode:
+                current_mode = next_mode
+                # Fresh turn buffers when switching personas.
+                odin_state = None
+                artemis_state = None
+                console.print(f"[dim]Switched active session to {current_mode}.[/dim]")
             continue
         if lowered.startswith("/config"):
             handle_config_command(
@@ -96,20 +105,73 @@ def run_odin_repl(
                 console=console,
             )
             continue
-        if current_mode != "odin":
+        if current_mode not in WIRED_MODES:
             console.print(
                 f"\n{current_mode} mode is selected but not wired yet. "
-                "Use /mode odin to continue in Phase 1."
+                "Use /mode odin or /mode artemis."
             )
             continue
 
-        state = prepare_state_for_turn(
-            previous_state=state,
-            user_input=user_input,
-            show_drafts=show_drafts,
-        )
         try:
-            result = asyncio.run(invoke_odin_graph_with_ui_fn(graph=graph, state=state, console=console))
+            if current_mode == "artemis":
+                if artemis_graph is None or invoke_artemis_graph_with_ui_fn is None:
+                    console.print("\nArtemis graph is not available in this build.")
+                    continue
+                artemis_state = prepare_artemis_state_for_turn(
+                    previous_state=artemis_state,
+                    user_input=user_input,
+                    show_drafts=show_drafts,
+                )
+                result = asyncio.run(
+                    invoke_artemis_graph_with_ui_fn(
+                        graph=artemis_graph,
+                        state=artemis_state,
+                        console=console,
+                        config=config,
+                    )
+                )
+                artemis_state = append_assistant_turn_artemis(
+                    state=result,
+                    final_synthesis=result.get("final_synthesis", "No synthesis produced."),
+                )
+                if active_thread:
+                    touch_thread(thread_id=active_thread, mode="artemis")
+                if show_drafts:
+                    print_artemis_drafts(console=console, state=artemis_state)
+                else:
+                    console.print()
+                final_text = _normalize_for_render(artemis_state["chat_history"][-1]["content"])
+                console.print("[bold]Artemis Research Verdict[/bold]")
+                console.print(Markdown(final_text))
+                console.print()
+            else:
+                odin_state = prepare_state_for_turn(
+                    previous_state=odin_state,
+                    user_input=user_input,
+                    show_drafts=show_drafts,
+                )
+                result = asyncio.run(
+                    invoke_odin_graph_with_ui_fn(
+                        graph=odin_graph,
+                        state=odin_state,
+                        console=console,
+                        config=config,
+                    )
+                )
+                odin_state = append_assistant_turn(
+                    state=result,
+                    final_synthesis=result.get("final_synthesis", "No synthesis produced."),
+                )
+                if active_thread:
+                    touch_thread(thread_id=active_thread, mode="odin")
+                if show_drafts:
+                    print_worker_drafts(console=console, state=odin_state)
+                else:
+                    console.print()
+                final_text = _normalize_for_render(odin_state["chat_history"][-1]["content"])
+                console.print("[bold]Odin's Final Verdict[/bold]")
+                console.print(Markdown(final_text))
+                console.print()
         except KeyboardInterrupt:
             interrupt_state["armed"] = True
             console.print("\n[dim]Current turn cancelled. Press Ctrl+C again to exit, or type /exit.[/dim]")
@@ -120,29 +182,9 @@ def run_odin_repl(
                 raise
             continue
 
-        state = append_assistant_turn(
-            state=result,
-            final_synthesis=result.get("final_synthesis", "No synthesis produced."),
-        )
-        if show_drafts:
-            print_worker_drafts(console=console, state=state)
-        else:
-            console.print()
-        final_text = _normalize_for_render(state["chat_history"][-1]["content"])
-        console.print("[bold]Odin's Final Verdict[/bold]")
-        console.print(Markdown(final_text))
-        console.print()
-
 
 def handle_show_drafts_command(*, command: str, show_drafts: bool, console: Console) -> bool:
-    """
-    Process `/show-drafts` command and return updated draft-visibility state.
-
-    Supported commands:
-        - `/show-drafts`
-        - `/show-drafts on`
-        - `/show-drafts off`
-    """
+    """Process `/show-drafts` command and return updated draft-visibility state."""
     parts = command.strip().split(maxsplit=1)
     if len(parts) == 1:
         status = "on" if show_drafts else "off"
@@ -167,18 +209,7 @@ def handle_show_drafts_command(*, command: str, show_drafts: bool, console: Cons
 
 
 def handle_mode_command(*, command: str, current_mode: str, console: Console) -> str:
-    """
-    Process `/mode` chat commands and return the selected mode.
-
-    Args:
-        command: Raw user command text.
-        current_mode: Active mode before processing the command.
-        console: Rich console for command feedback.
-
-    Returns:
-        Updated active mode. If selection is invalid or unwired, the current mode
-        is preserved.
-    """
+    """Process `/mode` chat commands and return the selected mode."""
     parts = command.strip().split(maxsplit=1)
     if len(parts) == 1:
         modes = ", ".join(
@@ -197,7 +228,7 @@ def handle_mode_command(*, command: str, current_mode: str, console: Console) ->
         return current_mode
     if requested_mode not in WIRED_MODES:
         console.print(
-            f"\n{requested_mode} mode is planned and not yet wired in Phase 1. "
+            f"\n{requested_mode} mode is planned and not yet wired. "
             f"Remaining on {current_mode}."
         )
         return current_mode
@@ -210,13 +241,7 @@ def handle_mode_command(*, command: str, current_mode: str, console: Console) ->
 
 
 def handle_config_command(*, command: str, console: Console, resolve_env_path_fn) -> None:
-    """
-    Process `/config` commands for runtime flag configuration.
-
-    Supported commands:
-        - `/config`
-        - `/config set <KEY> <VALUE>`
-    """
+    """Process `/config` commands for runtime flag configuration."""
     parts = command.strip().split(maxsplit=3)
     env_path = resolve_env_path_fn(console=console)
 
@@ -294,24 +319,39 @@ def print_worker_drafts(*, console: Console, state: OdinState) -> None:
     console.print()
 
 
+def print_artemis_drafts(*, console: Console, state: ArtemisState) -> None:
+    """Render Artemis specialist draft and critic notes before final verdict."""
+    console.print()
+    console.print("[bold]Artemis research trail[/bold]")
+    plan = _normalize_for_render(str(state.get("plan", "")))
+    draft = _normalize_for_render(str(state.get("specialist_draft", "")))
+    feedback = _normalize_for_render(str(state.get("critic_feedback", "")))
+    if plan:
+        console.print("[bold]Plan[/bold]")
+        console.print(Markdown(plan))
+        console.print()
+    if draft:
+        console.print("[bold]Specialist draft[/bold]")
+        console.print(Markdown(draft))
+        console.print()
+    if feedback:
+        console.print(
+            f"[bold]Critic[/bold] ({state.get('critic_verdict', 'n/a')}, "
+            f"revisions={state.get('revision_count', 0)})"
+        )
+        console.print(Markdown(feedback))
+        console.print()
+    console.print("[bold]End of Artemis research trail[/bold]")
+    console.print()
+
+
 def _normalize_for_render(content: str) -> str:
     """Trim surrounding blank space to keep REPL spacing consistent."""
     return content.strip()
 
 
 def prepare_state_for_turn(*, previous_state: OdinState | None, user_input: str, show_drafts: bool) -> OdinState:
-    """
-    Build the input state for the next Odin turn.
-
-    Args:
-        previous_state: State from prior turn, if any.
-        user_input: Current user message text.
-        show_drafts: Runtime toggle for draft visibility.
-
-    Returns:
-        Updated state carrying prior context, resetting per-turn draft buffer,
-        and appending the new user message to `chat_history`.
-    """
+    """Build the input state for the next Odin turn."""
     if previous_state is None:
         state = initialize_odin_state(user_input)
     else:
@@ -324,32 +364,54 @@ def prepare_state_for_turn(*, previous_state: OdinState | None, user_input: str,
     return append_chat_message(state=state, role="user", content=user_input)
 
 
+def prepare_artemis_state_for_turn(
+    *,
+    previous_state: ArtemisState | None,
+    user_input: str,
+    show_drafts: bool,
+) -> ArtemisState:
+    """Build the input state for the next Artemis turn."""
+    if previous_state is None:
+        state = initialize_artemis_state(user_input)
+    else:
+        state = {
+            **previous_state,
+            "query": user_input,
+            "plan": "",
+            "search_queries": [],
+            "search_hits": [],
+            "extracted_pages": [],
+            "specialist_draft": "",
+            "critic_verdict": "",
+            "critic_feedback": "",
+            "critic_accepted": False,
+            "revision_count": 0,
+            "final_synthesis": "",
+        }
+    state["show_drafts"] = show_drafts
+    return append_chat_message_artemis(state=state, role="user", content=user_input)
+
+
 def append_assistant_turn(*, state: OdinState, final_synthesis: str) -> OdinState:
-    """
-    Append final assistant synthesis into persisted chat history.
-
-    Args:
-        state: Current Odin state after graph execution.
-        final_synthesis: Final judge output text.
-
-    Returns:
-        New state object with appended assistant message.
-    """
+    """Append final assistant synthesis into persisted chat history."""
     return append_chat_message(state=state, role="assistant", content=final_synthesis)
 
 
+def append_assistant_turn_artemis(*, state: ArtemisState, final_synthesis: str) -> ArtemisState:
+    return append_chat_message_artemis(state=state, role="assistant", content=final_synthesis)
+
+
 def append_chat_message(*, state: OdinState, role: str, content: str) -> OdinState:
-    """
-    Append one chat message to state history immutably.
+    """Append one chat message to Odin state history immutably."""
+    history = list(state.get("chat_history", []))
+    history.append(ChatMessage(role=role, content=content))
+    return {
+        **state,
+        "chat_history": history,
+    }
 
-    Args:
-        state: Base state.
-        role: Message role label (e.g., user, assistant).
-        content: Message content.
 
-    Returns:
-        New state with extended `chat_history`.
-    """
+def append_chat_message_artemis(*, state: ArtemisState, role: str, content: str) -> ArtemisState:
     history = list(state.get("chat_history", []))
     history.append(ChatMessage(role=role, content=content))
     return {

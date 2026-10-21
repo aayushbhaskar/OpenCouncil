@@ -257,14 +257,17 @@ async def test_query_search_extract_pipeline_respects_budget(monkeypatch: pytest
             ]
 
     class _FakeReader:
-        def __init__(self, timeout_seconds: float = 10.0) -> None:
+        def __init__(self, timeout_seconds: float = 10.0, **_: object) -> None:
             _ = timeout_seconds
 
         async def fetch_markdown(self, url: str) -> str:
             return f"content for {url}"
 
     monkeypatch.setattr("open_council.core.llm.LiteLLMClient.complete", _stub_complete)
-    monkeypatch.setattr("open_council.graphs.odin_nodes.DuckDuckGoSearchProvider", _FakeProvider)
+    monkeypatch.setattr(
+        "open_council.graphs.odin_nodes.resolve_search_provider",
+        lambda **_: _FakeProvider(),
+    )
     monkeypatch.setattr("open_council.graphs.odin_nodes.JinaReader", _FakeReader)
 
     state = initialize_odin_state("Assess latest CVE impact")

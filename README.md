@@ -63,8 +63,8 @@ Open Council is built for real-world reliability:
 
 Open Council operates through specialized agentic graphs:
 
-- **Odin (Executive Mode):** *[Available in MVP]* Parallel workers (Muninn and Huginn) + Odin judge synthesis.
-- **Artemis (Academic Mode):** *[Coming Soon]* Iterative citation-heavy research loops.
+- **Odin (Executive Mode):** *[Available]* Parallel workers (Muninn and Huginn) + Odin judge synthesis.
+- **Artemis (Academic Mode):** *[Available]* Cyclic Planner → Specialists → Critic research loops (max 3 revisions).
 - **Leviathan (Devil's Advocate):** *[Coming Soon]* Aggressive architecture and risk stress-testing.
 
 ## 🚀 Quick Start
@@ -147,16 +147,19 @@ The Path Forward:
 3) Extract the first service only when measured load exceeds those thresholds.
 ```
 
-### Current MVP capabilities
+### Current capabilities
 
 - Odin mode LangGraph pipeline with Muninn + Huginn workers and Odin judge
+- Artemis mode cyclic research graph (Planner → search/extract → Specialist → Critic → synthesize)
 - Async LiteLLM routing with Groq -> OpenRouter -> Gemini -> Ollama fallback (`open_council.core.llm`)
 - Interactive CLI REPL with `/exit` and `/quit`
 - Session draft visibility controls: `--show-drafts` and `/show-drafts on|off`
-- In-chat mode command: `/mode` (list) and `/mode <name>` (switch; Odin wired in MVP)
+- In-chat mode command: `/mode` (list) and `/mode <name>` (switch; Odin + Artemis wired)
 - In-chat config command: `/config` and `/config set <KEY> <VALUE>` for update flags
-- Optional per-node Odin model overrides (`MUNINN_MODEL`, `HUGINN_MODEL`, `ODIN_MODEL`)
+- Optional per-node Odin model overrides (`MUNINN_MODEL`, `HUGINN_MODEL`, `ODIN_MODEL`) and `ARTEMIS_MODEL`
 - OpenRouter support via `OPENROUTER_API_KEY` + `OPENROUTER_MODEL`
+- Tier-2 search auto-swap: Tavily → Serper → DuckDuckGo (plus SQLite search/Jina cache)
+- SQLite checkpointing with `--thread` resume and `council history`
 - Graceful Ctrl+C handling (first press warns, second exits cleanly)
 - First-run setup wizard using `~/.open-council/.env` (temporary local `.env` fallback supported)
 - Ollama readiness checks (binary, server, model) with actionable guidance
@@ -196,15 +199,15 @@ Open Council is designed for graceful degradation:
 - Network throttling via strict `asyncio.Semaphore`
 - Tiered provider fallback using LiteLLM
 - Deterministic orchestration with typed state in LangGraph
-- ReAct-style Odin worker phases: reason -> search query generation -> DDG search -> Jina extraction -> refine -> draft
+- ReAct-style Odin worker phases: reason -> search query generation -> search -> Jina extraction -> refine -> draft
 - Worker-controlled retrieval: Muninn and Huginn decide when web search is necessary, then gather only bounded evidence
+- Artemis cyclic Critic loop with hard max of 3 revisions before final synthesis
 - UI shows phase progression for retrieval/reasoning steps without dumping raw search payloads
-
-Local checkpointing is planned for a later phase (SQLite-backed, not wired in MVP yet).
+- Local SQLite checkpoints (`~/.open-council/checkpoints.sqlite`) and search cache (`~/.open-council/search_cache.sqlite`)
 
 ## 🗺️ Roadmap
 
 - [x] Phase 1: Resilient MVP (Odin mode, LiteLLM routing, Rich CLI)
-- [ ] Phase 2: Deep reasoning (Artemis mode, SQLite memory, web tools)
+- [x] Phase 2: Deep reasoning (Artemis mode, SQLite memory, web tools)
 - [ ] Phase 3: Enterprise scale (Leviathan mode, local vector memory, cloud backends)
 - [ ] Phase 4: Workstation layer (Ariadne mode, secure local file workflows)

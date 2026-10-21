@@ -22,7 +22,7 @@ from open_council.graphs.odin_nodes import (
 from open_council.state.executive import OdinState
 
 
-def build_odin_graph():
+def build_odin_graph(*, checkpointer=None):
     """
     Build and compile the Odin DAG topology.
 
@@ -66,14 +66,16 @@ def build_odin_graph():
     graph.add_edge("huginn_draft", "odin_judge")
     graph.add_edge("odin_judge", END)
 
+    if checkpointer is not None:
+        return graph.compile(checkpointer=checkpointer)
     return graph.compile()
 
 
-def compile_executive_graph():
+def compile_executive_graph(*, checkpointer=None):
     """
     Compatibility wrapper for legacy/PRD naming.
 
     Returns:
         The same compiled graph returned by `build_odin_graph()`.
     """
-    return build_odin_graph()
+    return build_odin_graph(checkpointer=checkpointer)

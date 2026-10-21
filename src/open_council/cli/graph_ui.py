@@ -13,6 +13,7 @@ from rich.live import Live
 from rich.spinner import Spinner
 from rich.text import Text
 
+from open_council.state.artemis import ArtemisState
 from open_council.state.executive import OdinState
 
 WORKER_CHAINS = {
@@ -50,8 +51,32 @@ NODE_LABELS = {
     "odin_judge": "Odin: judging",
 }
 
+ARTEMIS_CHAIN = [
+    "artemis_planner",
+    "artemis_search",
+    "artemis_extract",
+    "artemis_specialist_draft",
+    "artemis_critic",
+    "artemis_synthesize",
+]
 
-async def invoke_odin_graph_with_ui(*, graph: Any, state: OdinState, console: Console) -> OdinState:
+ARTEMIS_LABELS = {
+    "artemis_planner": "Artemis: planning",
+    "artemis_search": "Artemis: searching web",
+    "artemis_extract": "Artemis: extracting pages",
+    "artemis_specialist_draft": "Artemis: drafting research",
+    "artemis_critic": "Artemis: critic review",
+    "artemis_synthesize": "Artemis: synthesizing",
+}
+
+
+async def invoke_odin_graph_with_ui(
+    *,
+    graph: Any,
+    state: OdinState,
+    console: Console,
+    config: dict[str, Any] | None = None,
+) -> OdinState:
     """
     Execute one Odin graph turn while rendering transient Rich spinners.
 
@@ -63,8 +88,14 @@ async def invoke_odin_graph_with_ui(*, graph: Any, state: OdinState, console: Co
     Returns:
         Merged resulting state after processing streamed node updates.
     """
+    stream_kwargs: dict[str, Any] = {"stream_mode": "updates"}
+    invoke_kwargs: dict[str, Any] = {}
+    if config is not None:
+        stream_kwargs["config"] = config
+        invoke_kwargs["config"] = config
+
     if not hasattr(graph, "astream"):
-        return await graph.ainvoke(state)
+        return await graph.ainvoke(state, **invoke_kwargs)
 
     merged_state: OdinState = dict(state)
     phase_state = initialize_phase_state(now=time.monotonic())
@@ -79,13 +110,84 @@ async def invoke_odin_graph_with_ui(*, graph: Any, state: OdinState, console: Co
             _heartbeat_refresh(live=live, phase_state=phase_state, stop_event=stop_heartbeat)
         )
         try:
-            async for chunk in graph.astream(state, stream_mode="updates"):
+            async for chunk in graph.astream(state, **stream_kwargs):
                 node_name = extract_node_name(chunk)
                 node_update = extract_node_update(chunk, node_name)
                 merged_state = merge_state_update(merged_state, node_update)
                 if node_name:
                     advance_phase_state(phase_state=phase_state, node_name=node_name, now=time.monotonic())
                     live.update(render_phase_lines(phase_state, now=time.monotonic()), refresh=True)
+        finally:
+            stop_heartbeat.set()
+            heartbeat_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await heartbeat_task
+
+    return merged_state
+
+
+async def invoke_artemis_graph_with_ui(
+    *,
+    graph: Any,
+    state: ArtemisState,
+    console: Console,
+    config: dict[str, Any] | None = None,
+) -> ArtemisState:
+    """Execute one Artemis turn with transient current-step progress."""
+    stream_kwargs: dict[str, Any] = {"stream_mode": "updates"}
+    invoke_kwargs: dict[str, Any] = {}
+    if config is not None:
+        stream_kwargs["config"] = config
+        invoke_kwargs["config"] = config
+
+    if not hasattr(graph, "astream"):
+        return await graph.ainvoke(state, **invoke_kwargs)
+
+    merged_state: ArtemisState = dict(state)
+    now = time.monotonic()
+    phase_state = {
+        "active_node": ARTEMIS_CHAIN[0],
+        "started_at": now,
+        "revision_count": int(state.get("revision_count", 0) or 0),
+    }
+    stop_heartbeat = asyncio.Event()
+
+    def _render(*, clock: float) -> Group:
+        node = phase_state.get("active_node")
+        if not node:
+            return Group(Text(""))
+        started = phase_state.get("started_at") or clock
+        elapsed = int(max(0, clock - started))
+        label = ARTEMIS_LABELS.get(str(node), str(node))
+        revision = int(phase_state.get("revision_count", 0) or 0)
+        suffix = f" (rev {revision}/{3})" if revision else ""
+        return Group(Spinner("dots", f"{label}{suffix} ({elapsed}s)"))
+
+    with Live(_render(clock=time.monotonic()), transient=True, console=console, refresh_per_second=10) as live:
+        async def _beat() -> None:
+            while not stop_heartbeat.is_set():
+                live.update(_render(clock=time.monotonic()), refresh=True)
+                try:
+                    await asyncio.wait_for(stop_heartbeat.wait(), timeout=0.2)
+                except asyncio.TimeoutError:
+                    continue
+
+        heartbeat_task = asyncio.create_task(_beat())
+        try:
+            async for chunk in graph.astream(state, **stream_kwargs):
+                node_name = extract_node_name(chunk)
+                node_update = extract_node_update(chunk, node_name)
+                merged_state = {**merged_state, **node_update}
+                if node_name:
+                    phase_state["active_node"] = node_name
+                    phase_state["started_at"] = time.monotonic()
+                    if "revision_count" in node_update:
+                        phase_state["revision_count"] = int(node_update.get("revision_count") or 0)
+                    # After critic revise, planner becomes active again on next chunk.
+                    if node_name == "artemis_critic" and not bool(merged_state.get("critic_accepted", False)):
+                        if int(merged_state.get("revision_count", 0) or 0) < 3:
+                            phase_state["active_node"] = "artemis_planner"
+                    live.update(_render(clock=time.monotonic()), refresh=True)
         finally:
             stop_heartbeat.set()
             heartbeat_task.cancel()

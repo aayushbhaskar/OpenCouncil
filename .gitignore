@@ -1,5 +1,8 @@
 .env
 AGENT.md
+FLOWS.md
+DECISIONS.md
+Open Council PRD.pdf
 .venv/
 __pycache__/
 .pytest_cache/

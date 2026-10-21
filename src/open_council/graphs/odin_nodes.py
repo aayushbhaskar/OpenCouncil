@@ -18,7 +18,7 @@ from open_council.state.executive import (
     WorkerSearchHit,
 )
 from open_council.tools.jina_reader import JinaReader
-from open_council.tools.search_ddg import DuckDuckGoSearchProvider
+from open_council.tools.search_resolver import resolve_search_provider
 
 _MAX_QUERIES_PER_WORKER = 2
 _MAX_SEARCH_RESULTS_PER_QUERY = 5
@@ -243,7 +243,7 @@ async def _search_node(*, state: OdinState, worker_id: str) -> dict[str, WorkerR
         )
         return _worker_context_update(worker_id=worker_id, context=context)
 
-    provider = DuckDuckGoSearchProvider()
+    provider = resolve_search_provider(use_cache=True)
     seen_urls: set[str] = set()
     hits: list[WorkerSearchHit] = []
     for query in context.get("search_queries", [])[:_MAX_QUERIES_PER_WORKER]:
@@ -291,7 +291,7 @@ async def _extract_node(*, state: OdinState, worker_id: str) -> dict[str, Worker
         )
         return _worker_context_update(worker_id=worker_id, context=context)
 
-    reader = JinaReader(timeout_seconds=10.0)
+    reader = JinaReader(timeout_seconds=10.0, use_cache=True)
     candidate_urls = [
         hit.get("url", "").strip()
         for hit in hits[:_MAX_EXTRACTED_PAGES_PER_WORKER]

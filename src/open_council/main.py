@@ -4,10 +4,12 @@ import argparse
 import contextlib
 import shutil
 from collections.abc import Sequence
+from datetime import datetime
 from pathlib import Path
 
 from rich.console import Console
 from rich.prompt import Prompt
+from rich.table import Table
 
 from open_council.core.llm import configure_litellm_logging
 from open_council.cli.constants import (
@@ -16,8 +18,12 @@ from open_council.cli.constants import (
     LOCAL_ENV_PATH,
     TEMPLATE_ENV_PATH,
     UPDATE_COMMAND,
+    WIRED_MODES,
 )
-from open_council.cli.graph_ui import invoke_odin_graph_with_ui as _invoke_odin_graph_with_ui_impl
+from open_council.cli.graph_ui import (
+    invoke_artemis_graph_with_ui as _invoke_artemis_graph_with_ui_impl,
+    invoke_odin_graph_with_ui as _invoke_odin_graph_with_ui_impl,
+)
 from open_council.cli.prompting import (
     prompt_with_exit_controls as _prompt_with_exit_controls_impl,
     without_echoctl as _without_echoctl_impl,
@@ -27,7 +33,14 @@ from open_council.config.bootstrap import (
     ensure_env_file_with_wizard as _ensure_env_file_with_wizard_impl,
     load_env_file as _load_env_file_impl,
 )
+from open_council.graphs.artemis_graph import build_artemis_graph
 from open_council.graphs.executive_graph import build_odin_graph
+from open_council.runtime.checkpoints import (
+    ensure_thread_id,
+    list_threads,
+    open_sqlite_saver,
+    touch_thread,
+)
 from open_council.runtime.provider_readiness import (
     OllamaReadiness,
     get_ollama_readiness as _get_ollama_readiness_impl,
@@ -52,6 +65,13 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Show worker drafts before the final response when supported by the active mode.",
     )
+    parser.add_argument(
+        "--thread",
+        default=None,
+        help="Resume or create a LangGraph checkpoint thread id.",
+    )
+    subparsers = parser.add_subparsers(dest="command")
+    subparsers.add_parser("history", help="List recent checkpoint threads.")
     return parser
 
 
@@ -61,14 +81,19 @@ def parse_cli_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 
 def app(argv: Sequence[str] | None = None) -> None:
     args = parse_cli_args(argv)
-    configure_litellm_logging(debug=args.debug)
     console = Console()
+
+    if getattr(args, "command", None) == "history":
+        print_thread_history(console=console)
+        return
+
+    configure_litellm_logging(debug=args.debug)
     console.print("Open Council starting...")
     console.print(f"Mode: {args.mode}")
     console.print(f"Debug: {'enabled' if args.debug else 'disabled'}")
     console.print(f"Show drafts: {'enabled' if args.show_drafts else 'disabled'}")
-    if args.mode != "odin":
-        console.print(f"{args.mode} mode is planned and not yet wired in Phase 1.")
+    if args.mode not in WIRED_MODES:
+        console.print(f"{args.mode} mode is planned and not yet wired.")
         return
 
     env_path = resolve_env_path(console=console)
@@ -77,23 +102,76 @@ def app(argv: Sequence[str] | None = None) -> None:
     _load_env_file(env_path)
     print_provider_readiness_summary(console=console)
     maybe_print_update_notice(console=console)
-    run_odin_repl(console=console, debug=args.debug, initial_show_drafts=args.show_drafts)
+
+    thread_id = ensure_thread_id(args.thread)
+    touch_thread(thread_id=thread_id, mode=args.mode)
+    console.print(f"[dim]Checkpoint thread: {thread_id}[/dim]")
+
+    with open_sqlite_saver() as checkpointer:
+        run_odin_repl(
+            console=console,
+            debug=args.debug,
+            initial_show_drafts=args.show_drafts,
+            thread_id=thread_id,
+            graph_config={"configurable": {"thread_id": thread_id}},
+            checkpointer=checkpointer,
+            initial_mode=args.mode,
+        )
 
 
-def run_odin_repl(console: Console, *, debug: bool = False, initial_show_drafts: bool = False) -> None:
+def run_odin_repl(
+    console: Console,
+    *,
+    debug: bool = False,
+    initial_show_drafts: bool = False,
+    thread_id: str | None = None,
+    graph_config: dict | None = None,
+    checkpointer=None,
+    initial_mode: str = "odin",
+) -> None:
+    def _odin_builder():
+        return build_odin_graph(checkpointer=checkpointer)
+
+    def _artemis_builder():
+        return build_artemis_graph(checkpointer=checkpointer)
+
     _run_odin_repl_impl(
         console=console,
         debug=debug,
         initial_show_drafts=initial_show_drafts,
-        graph_builder=build_odin_graph,
+        graph_builder=_odin_builder,
+        artemis_graph_builder=_artemis_builder,
         prompt_with_exit_controls_fn=_prompt_with_exit_controls,
         invoke_odin_graph_with_ui_fn=_invoke_odin_graph_with_ui,
+        invoke_artemis_graph_with_ui_fn=_invoke_artemis_graph_with_ui,
         resolve_env_path_fn=resolve_env_path,
+        thread_id=thread_id,
+        graph_config=graph_config,
+        initial_mode=initial_mode,
     )
 
 
-async def _invoke_odin_graph_with_ui(*, graph, state, console: Console):
-    return await _invoke_odin_graph_with_ui_impl(graph=graph, state=state, console=console)
+async def _invoke_odin_graph_with_ui(*, graph, state, console: Console, config=None):
+    return await _invoke_odin_graph_with_ui_impl(graph=graph, state=state, console=console, config=config)
+
+
+async def _invoke_artemis_graph_with_ui(*, graph, state, console: Console, config=None):
+    return await _invoke_artemis_graph_with_ui_impl(graph=graph, state=state, console=console, config=config)
+
+
+def print_thread_history(*, console: Console) -> None:
+    threads = list_threads(limit=50)
+    if not threads:
+        console.print("No checkpoint threads found yet.")
+        return
+    table = Table(title="Open Council thread history")
+    table.add_column("Thread ID")
+    table.add_column("Mode")
+    table.add_column("Updated")
+    for item in threads:
+        updated = datetime.fromtimestamp(item.updated_at).strftime("%Y-%m-%d %H:%M:%S")
+        table.add_row(item.thread_id, item.mode, updated)
+    console.print(table)
 
 
 def resolve_env_path(*, console: Console) -> Path:

@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
+import pytest
 from rich.console import Console
 
 from open_council.cli.graph_ui import (
@@ -14,6 +16,25 @@ from open_council.cli.graph_ui import (
     render_phase_lines,
 )
 from open_council.main import app, parse_cli_args
+
+
+@pytest.fixture(autouse=True)
+def _stub_checkpointing(monkeypatch):
+    @contextlib.contextmanager
+    def _null_saver():
+        yield None
+
+    from open_council import main
+
+    monkeypatch.setattr(main, "open_sqlite_saver", _null_saver)
+    monkeypatch.setattr(main, "touch_thread", lambda **_: None)
+    monkeypatch.setattr(main, "ensure_thread_id", lambda raw: (raw or "test-thread"))
+    monkeypatch.setattr(main, "build_artemis_graph", lambda checkpointer=None: _DummyGraph())
+    monkeypatch.setattr("open_council.cli.repl.touch_thread", lambda **_: None)
+    monkeypatch.setattr(
+        "open_council.tools.search_cache.DEFAULT_CACHE_PATH",
+        Path("/tmp/open-council-test-search-cache.sqlite"),
+    )
 
 
 class _DummyGraph:
@@ -28,7 +49,7 @@ class _DummyGraph:
             "final_synthesis": f"verdict for: {state['query']}",
         }
 
-    async def astream(self, state: dict[str, Any], stream_mode: str = "updates"):
+    async def astream(self, state: dict[str, Any], stream_mode: str = "updates", **_: Any):
         _ = stream_mode
         self.received_states.append(dict(state))
         yield {
@@ -45,7 +66,7 @@ class _DummyGraph:
 
 
 class _DummyReactGraph:
-    async def astream(self, state: dict[str, Any], stream_mode: str = "updates"):
+    async def astream(self, state: dict[str, Any], stream_mode: str = "updates", **_: Any):
         _ = stream_mode
         yield {"muninn_reason_gate": {"muninn_retrieval": {"needs_search": True}}}
         yield {
@@ -137,7 +158,7 @@ def test_app_prints_mode_and_debug(capsys, monkeypatch) -> None:
     from open_council import main
 
     monkeypatch.setattr(main.Prompt, "ask", _stub_prompt)
-    monkeypatch.setattr(main, "build_odin_graph", lambda: dummy_graph)
+    monkeypatch.setattr(main, "build_odin_graph", lambda checkpointer=None: dummy_graph)
     monkeypatch.setattr(main, "resolve_env_path", lambda console: Path("/tmp/mock.env"))
     monkeypatch.setattr(main, "ensure_env_file_with_wizard", lambda **_: True)
     monkeypatch.setattr(main, "_load_env_file", lambda env_path: None)
@@ -155,12 +176,37 @@ def test_app_prints_mode_and_debug(capsys, monkeypatch) -> None:
     assert "Exiting Open Council." in output
 
 
-def test_app_warns_for_unwired_mode(capsys) -> None:
+def test_app_warns_for_unwired_mode(capsys, monkeypatch) -> None:
+    prompt_values = iter(["/exit"])
+
+    def _stub_prompt(_: str, default: str | None = None) -> str:
+        _ = default
+        return next(prompt_values)
+
+    from open_council import main
+
+    monkeypatch.setattr(main.Prompt, "ask", _stub_prompt)
+    monkeypatch.setattr(main, "build_odin_graph", lambda checkpointer=None: _DummyGraph())
+    monkeypatch.setattr(main, "build_artemis_graph", lambda checkpointer=None: _DummyGraph())
+    monkeypatch.setattr(main, "resolve_env_path", lambda console: Path("/tmp/mock.env"))
+    monkeypatch.setattr(main, "ensure_env_file_with_wizard", lambda **_: True)
+    monkeypatch.setattr(main, "_load_env_file", lambda env_path: None)
+    monkeypatch.setattr(main, "print_provider_readiness_summary", lambda console: None)
+    monkeypatch.setattr(main, "maybe_print_update_notice", lambda console: None)
+
     app(["--mode", "artemis"])
     output = capsys.readouterr().out
 
     assert "Mode: artemis" in output
-    assert "artemis mode is planned and not yet wired in Phase 1." in output
+    assert "Artemis ready." in output
+
+
+def test_app_warns_for_leviathan_unwired(capsys) -> None:
+    app(["--mode", "leviathan"])
+    output = capsys.readouterr().out
+
+    assert "Mode: leviathan" in output
+    assert "leviathan mode is planned and not yet wired." in output
 
 
 def test_app_persists_state_across_turns(capsys, monkeypatch) -> None:
@@ -174,7 +220,7 @@ def test_app_persists_state_across_turns(capsys, monkeypatch) -> None:
     from open_council import main
 
     monkeypatch.setattr(main.Prompt, "ask", _stub_prompt)
-    monkeypatch.setattr(main, "build_odin_graph", lambda: dummy_graph)
+    monkeypatch.setattr(main, "build_odin_graph", lambda checkpointer=None: dummy_graph)
     monkeypatch.setattr(main, "resolve_env_path", lambda console: Path("/tmp/mock.env"))
     monkeypatch.setattr(main, "ensure_env_file_with_wizard", lambda **_: True)
     monkeypatch.setattr(main, "_load_env_file", lambda env_path: None)
@@ -211,7 +257,7 @@ def test_app_requires_slash_exit_commands(capsys, monkeypatch) -> None:
     from open_council import main
 
     monkeypatch.setattr(main.Prompt, "ask", _stub_prompt)
-    monkeypatch.setattr(main, "build_odin_graph", lambda: dummy_graph)
+    monkeypatch.setattr(main, "build_odin_graph", lambda checkpointer=None: dummy_graph)
     monkeypatch.setattr(main, "resolve_env_path", lambda console: Path("/tmp/mock.env"))
     monkeypatch.setattr(main, "ensure_env_file_with_wizard", lambda **_: True)
     monkeypatch.setattr(main, "_load_env_file", lambda env_path: None)
@@ -238,7 +284,7 @@ def test_repl_mode_command_lists_modes(capsys, monkeypatch) -> None:
     from open_council import main
 
     monkeypatch.setattr(main.Prompt, "ask", _stub_prompt)
-    monkeypatch.setattr(main, "build_odin_graph", lambda: dummy_graph)
+    monkeypatch.setattr(main, "build_odin_graph", lambda checkpointer=None: dummy_graph)
     monkeypatch.setattr(main, "resolve_env_path", lambda console: Path("/tmp/mock.env"))
     monkeypatch.setattr(main, "ensure_env_file_with_wizard", lambda **_: True)
     monkeypatch.setattr(main, "_load_env_file", lambda env_path: None)
@@ -265,7 +311,7 @@ def test_repl_show_drafts_command_toggles_setting(capsys, monkeypatch) -> None:
     from open_council import main
 
     monkeypatch.setattr(main.Prompt, "ask", _stub_prompt)
-    monkeypatch.setattr(main, "build_odin_graph", lambda: dummy_graph)
+    monkeypatch.setattr(main, "build_odin_graph", lambda checkpointer=None: dummy_graph)
     monkeypatch.setattr(main, "resolve_env_path", lambda console: Path("/tmp/mock.env"))
     monkeypatch.setattr(main, "ensure_env_file_with_wizard", lambda **_: True)
     monkeypatch.setattr(main, "_load_env_file", lambda env_path: None)
@@ -293,7 +339,7 @@ def test_show_drafts_flag_enables_worker_draft_printing(capsys, monkeypatch) -> 
     from open_council import main
 
     monkeypatch.setattr(main.Prompt, "ask", _stub_prompt)
-    monkeypatch.setattr(main, "build_odin_graph", lambda: dummy_graph)
+    monkeypatch.setattr(main, "build_odin_graph", lambda checkpointer=None: dummy_graph)
     monkeypatch.setattr(main, "resolve_env_path", lambda console: Path("/tmp/mock.env"))
     monkeypatch.setattr(main, "ensure_env_file_with_wizard", lambda **_: True)
     monkeypatch.setattr(main, "_load_env_file", lambda env_path: None)
@@ -322,7 +368,7 @@ def test_repl_prints_blank_line_before_model_output(capsys, monkeypatch) -> None
     from open_council import main
 
     monkeypatch.setattr(main.Prompt, "ask", _stub_prompt)
-    monkeypatch.setattr(main, "build_odin_graph", lambda: dummy_graph)
+    monkeypatch.setattr(main, "build_odin_graph", lambda checkpointer=None: dummy_graph)
     monkeypatch.setattr(main, "resolve_env_path", lambda console: Path("/tmp/mock.env"))
     monkeypatch.setattr(main, "ensure_env_file_with_wizard", lambda **_: True)
     monkeypatch.setattr(main, "_load_env_file", lambda env_path: None)
@@ -339,7 +385,7 @@ def test_repl_prints_blank_line_before_model_output(capsys, monkeypatch) -> None
 
 def test_repl_mode_command_rejects_unwired_mode(capsys, monkeypatch) -> None:
     dummy_graph = _DummyGraph()
-    prompt_values = iter(["/mode artemis", "question after mode command", "/exit"])
+    prompt_values = iter(["/mode leviathan", "question after mode command", "/exit"])
 
     def _stub_prompt(_: str, default: str | None = None) -> str:
         _ = default
@@ -348,7 +394,8 @@ def test_repl_mode_command_rejects_unwired_mode(capsys, monkeypatch) -> None:
     from open_council import main
 
     monkeypatch.setattr(main.Prompt, "ask", _stub_prompt)
-    monkeypatch.setattr(main, "build_odin_graph", lambda: dummy_graph)
+    monkeypatch.setattr(main, "build_odin_graph", lambda checkpointer=None: dummy_graph)
+    monkeypatch.setattr(main, "build_artemis_graph", lambda checkpointer=None: dummy_graph)
     monkeypatch.setattr(main, "resolve_env_path", lambda console: Path("/tmp/mock.env"))
     monkeypatch.setattr(main, "ensure_env_file_with_wizard", lambda **_: True)
     monkeypatch.setattr(main, "_load_env_file", lambda env_path: None)
@@ -358,7 +405,7 @@ def test_repl_mode_command_rejects_unwired_mode(capsys, monkeypatch) -> None:
     app(["--mode", "odin"])
     output = capsys.readouterr().out
 
-    assert "artemis mode is planned and not yet wired in Phase 1. Remaining on odin." in output
+    assert "leviathan mode is planned and not yet wired. Remaining on odin." in output
     assert "verdict for: question after mode command" in output
     assert len(dummy_graph.received_states) == 1
 
@@ -377,7 +424,7 @@ def test_repl_config_command_lists_supported_keys(capsys, monkeypatch, tmp_path)
     from open_council import main
 
     monkeypatch.setattr(main.Prompt, "ask", _stub_prompt)
-    monkeypatch.setattr(main, "build_odin_graph", lambda: dummy_graph)
+    monkeypatch.setattr(main, "build_odin_graph", lambda checkpointer=None: dummy_graph)
     monkeypatch.setattr(main, "resolve_env_path", lambda console: env_path)
     monkeypatch.setattr(main, "ensure_env_file_with_wizard", lambda **_: True)
     monkeypatch.setattr(main, "_load_env_file", lambda env_path: None)
@@ -407,7 +454,7 @@ def test_repl_config_command_sets_flag_value(capsys, monkeypatch, tmp_path) -> N
     from open_council import main
 
     monkeypatch.setattr(main.Prompt, "ask", _stub_prompt)
-    monkeypatch.setattr(main, "build_odin_graph", lambda: dummy_graph)
+    monkeypatch.setattr(main, "build_odin_graph", lambda checkpointer=None: dummy_graph)
     monkeypatch.setattr(main, "resolve_env_path", lambda console: env_path)
     monkeypatch.setattr(main, "ensure_env_file_with_wizard", lambda **_: True)
     monkeypatch.setattr(main, "_load_env_file", lambda env_path: None)
@@ -437,7 +484,7 @@ def test_repl_config_then_exit_does_not_invoke_graph(capsys, monkeypatch, tmp_pa
     from open_council import main
 
     monkeypatch.setattr(main.Prompt, "ask", _stub_prompt)
-    monkeypatch.setattr(main, "build_odin_graph", lambda: dummy_graph)
+    monkeypatch.setattr(main, "build_odin_graph", lambda checkpointer=None: dummy_graph)
     monkeypatch.setattr(main, "resolve_env_path", lambda console: env_path)
     monkeypatch.setattr(main, "ensure_env_file_with_wizard", lambda **_: True)
     monkeypatch.setattr(main, "_load_env_file", lambda env_path: None)
@@ -467,7 +514,7 @@ def test_repl_handles_none_prompt_value_without_crashing(capsys, monkeypatch, tm
     from open_council import main
 
     monkeypatch.setattr(main.Prompt, "ask", _stub_prompt)
-    monkeypatch.setattr(main, "build_odin_graph", lambda: dummy_graph)
+    monkeypatch.setattr(main, "build_odin_graph", lambda checkpointer=None: dummy_graph)
     monkeypatch.setattr(main, "resolve_env_path", lambda console: env_path)
     monkeypatch.setattr(main, "ensure_env_file_with_wizard", lambda **_: True)
     monkeypatch.setattr(main, "_load_env_file", lambda env_path: None)
@@ -490,13 +537,13 @@ def test_repl_ctrl_c_during_execution_cancels_turn_then_allows_exit(capsys, monk
         _ = default
         return next(prompt_values)
 
-    async def _cancel_invoke(*, graph, state, console):  # noqa: ARG001
+    async def _cancel_invoke(*, graph, state, console, config=None):  # noqa: ARG001
         raise KeyboardInterrupt()
 
     from open_council import main
 
     monkeypatch.setattr(main.Prompt, "ask", _stub_prompt)
-    monkeypatch.setattr(main, "build_odin_graph", lambda: dummy_graph)
+    monkeypatch.setattr(main, "build_odin_graph", lambda checkpointer=None: dummy_graph)
     monkeypatch.setattr(main, "resolve_env_path", lambda console: Path("/tmp/mock.env"))
     monkeypatch.setattr(main, "ensure_env_file_with_wizard", lambda **_: True)
     monkeypatch.setattr(main, "_load_env_file", lambda env_path: None)
@@ -522,13 +569,13 @@ def test_repl_ctrl_c_after_cancel_exits_immediately(capsys, monkeypatch) -> None
             return "question"
         raise KeyboardInterrupt()
 
-    async def _cancel_invoke(*, graph, state, console):  # noqa: ARG001
+    async def _cancel_invoke(*, graph, state, console, config=None):  # noqa: ARG001
         raise KeyboardInterrupt()
 
     from open_council import main
 
     monkeypatch.setattr(main.Prompt, "ask", _stub_prompt)
-    monkeypatch.setattr(main, "build_odin_graph", lambda: dummy_graph)
+    monkeypatch.setattr(main, "build_odin_graph", lambda checkpointer=None: dummy_graph)
     monkeypatch.setattr(main, "resolve_env_path", lambda console: Path("/tmp/mock.env"))
     monkeypatch.setattr(main, "ensure_env_file_with_wizard", lambda **_: True)
     monkeypatch.setattr(main, "_load_env_file", lambda env_path: None)
@@ -567,6 +614,14 @@ def test_first_run_wizard_creates_env_file(tmp_path, monkeypatch, capsys) -> Non
 
     monkeypatch.setattr(main.Prompt, "ask", _stub_prompt)
     monkeypatch.setattr(main.shutil, "which", lambda _: "/usr/local/bin/ollama")
+
+    class _Status:
+        state = "installed_not_running"
+        message = "Ollama binary detected at /usr/local/bin/ollama, but server is not reachable."
+        base_url = "http://localhost:11434"
+        model = "llama3.1"
+
+    monkeypatch.setattr(main, "get_ollama_readiness", lambda: _Status())
 
     main.ensure_env_file_with_wizard(
         console=Console(),
