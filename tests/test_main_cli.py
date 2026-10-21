@@ -20,13 +20,13 @@ from open_council.main import app, parse_cli_args
 
 @pytest.fixture(autouse=True)
 def _stub_checkpointing(monkeypatch):
-    @contextlib.contextmanager
-    def _null_saver():
+    @contextlib.asynccontextmanager
+    async def _null_saver():
         yield None
 
     from open_council import main
 
-    monkeypatch.setattr(main, "open_sqlite_saver", _null_saver)
+    monkeypatch.setattr(main, "open_async_sqlite_saver", _null_saver)
     monkeypatch.setattr(main, "touch_thread", lambda **_: None)
     monkeypatch.setattr(main, "ensure_thread_id", lambda raw: (raw or "test-thread"))
     monkeypatch.setattr(main, "build_artemis_graph", lambda checkpointer=None: _DummyGraph())

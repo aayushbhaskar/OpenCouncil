@@ -38,7 +38,7 @@ from open_council.graphs.executive_graph import build_odin_graph
 from open_council.runtime.checkpoints import (
     ensure_thread_id,
     list_threads,
-    open_sqlite_saver,
+    open_async_sqlite_saver,
     touch_thread,
 )
 from open_council.runtime.provider_readiness import (
@@ -107,16 +107,14 @@ def app(argv: Sequence[str] | None = None) -> None:
     touch_thread(thread_id=thread_id, mode=args.mode)
     console.print(f"[dim]Checkpoint thread: {thread_id}[/dim]")
 
-    with open_sqlite_saver() as checkpointer:
-        run_odin_repl(
-            console=console,
-            debug=args.debug,
-            initial_show_drafts=args.show_drafts,
-            thread_id=thread_id,
-            graph_config={"configurable": {"thread_id": thread_id}},
-            checkpointer=checkpointer,
-            initial_mode=args.mode,
-        )
+    run_odin_repl(
+        console=console,
+        debug=args.debug,
+        initial_show_drafts=args.show_drafts,
+        thread_id=thread_id,
+        graph_config={"configurable": {"thread_id": thread_id}},
+        initial_mode=args.mode,
+    )
 
 
 def run_odin_repl(
@@ -126,21 +124,14 @@ def run_odin_repl(
     initial_show_drafts: bool = False,
     thread_id: str | None = None,
     graph_config: dict | None = None,
-    checkpointer=None,
     initial_mode: str = "odin",
 ) -> None:
-    def _odin_builder():
-        return build_odin_graph(checkpointer=checkpointer)
-
-    def _artemis_builder():
-        return build_artemis_graph(checkpointer=checkpointer)
-
     _run_odin_repl_impl(
         console=console,
         debug=debug,
         initial_show_drafts=initial_show_drafts,
-        graph_builder=_odin_builder,
-        artemis_graph_builder=_artemis_builder,
+        graph_builder=build_odin_graph,
+        artemis_graph_builder=build_artemis_graph,
         prompt_with_exit_controls_fn=_prompt_with_exit_controls,
         invoke_odin_graph_with_ui_fn=_invoke_odin_graph_with_ui,
         invoke_artemis_graph_with_ui_fn=_invoke_artemis_graph_with_ui,
@@ -152,11 +143,17 @@ def run_odin_repl(
 
 
 async def _invoke_odin_graph_with_ui(*, graph, state, console: Console, config=None):
-    return await _invoke_odin_graph_with_ui_impl(graph=graph, state=state, console=console, config=config)
+    async with open_async_sqlite_saver() as checkpointer:
+        if checkpointer is not None and config:
+            graph = build_odin_graph(checkpointer=checkpointer)
+        return await _invoke_odin_graph_with_ui_impl(graph=graph, state=state, console=console, config=config)
 
 
 async def _invoke_artemis_graph_with_ui(*, graph, state, console: Console, config=None):
-    return await _invoke_artemis_graph_with_ui_impl(graph=graph, state=state, console=console, config=config)
+    async with open_async_sqlite_saver() as checkpointer:
+        if checkpointer is not None and config:
+            graph = build_artemis_graph(checkpointer=checkpointer)
+        return await _invoke_artemis_graph_with_ui_impl(graph=graph, state=state, console=console, config=config)
 
 
 def print_thread_history(*, console: Console) -> None:

@@ -5,10 +5,10 @@ from __future__ import annotations
 import sqlite3
 import time
 import uuid
-from contextlib import contextmanager
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, AsyncIterator
 
 from open_council.cli.constants import GLOBAL_CONFIG_DIR
 
@@ -92,24 +92,26 @@ def list_threads(*, path: Path | None = None, limit: int = 50) -> list[ThreadSum
     ]
 
 
-@contextmanager
-def open_sqlite_saver(path: Path | None = None) -> Iterator[Any]:
+@asynccontextmanager
+async def open_async_sqlite_saver(path: Path | None = None) -> AsyncIterator[Any]:
     """
-    Yield a LangGraph SqliteSaver bound to the global checkpoint DB.
+    Yield a LangGraph AsyncSqliteSaver bound to the global checkpoint DB.
 
-    Uses sync SqliteSaver (compatible with asyncio.run graph invokes).
+    Graphs run via `astream`/`ainvoke`, which require the async saver. The saver is
+    tied to the running event loop, so open it inside each `asyncio.run` turn.
     Yields `None` when the database cannot be opened (best-effort persistence).
     """
-    from langgraph.checkpoint.sqlite import SqliteSaver
+    import aiosqlite
+    from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
-    db_path = path or checkpoint_db_path()
+    db_path = path or DEFAULT_CHECKPOINT_PATH
     try:
         db_path.parent.mkdir(parents=True, exist_ok=True)
-        conn = sqlite3.connect(str(db_path), check_same_thread=False)
-        saver = SqliteSaver(conn)
-        try:
-            yield saver
-        finally:
-            conn.close()
+        conn = await aiosqlite.connect(str(db_path))
     except (OSError, sqlite3.Error):
         yield None
+        return
+    try:
+        yield AsyncSqliteSaver(conn)
+    finally:
+        await conn.close()

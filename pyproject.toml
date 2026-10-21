@@ -14,6 +14,7 @@ authors = [
 dependencies = [
     "langgraph~=0.2.0",
     "langgraph-checkpoint-sqlite~=2.0",
+    "aiosqlite>=0.20,<0.22",
     "litellm~=1.60",
     "rich~=13.9",
     "pydantic~=2.10",
